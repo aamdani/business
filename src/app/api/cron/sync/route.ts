@@ -202,7 +202,7 @@ export async function GET(request: NextRequest) {
                   author: item.creator,
                   source: manifest.source,
                   url: item.link,
-                  published_at: item.pubDate ? new Date(item.pubDate).toISOString() : null,
+                  ...(item.pubDate && { published_at: new Date(item.pubDate).toISOString() }),
                   content_preview: contentPreview,
                 },
               },
@@ -217,7 +217,7 @@ export async function GET(request: NextRequest) {
               subtitle: item.description?.slice(0, 200),
               content: item.content || item.description,
               author: item.creator,
-              published_at: item.pubDate ? new Date(item.pubDate).toISOString() : null,
+              ...(item.pubDate && { published_at: new Date(item.pubDate).toISOString() }),
               pinecone_id: pineconeId,
               metadata: {
                 enclosure: item.enclosure,

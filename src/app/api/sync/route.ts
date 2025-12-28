@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
               author: item.creator,
               source: source,
               url: item.link,
-              published_at: item.pubDate ? new Date(item.pubDate).toISOString() : null,
+              ...(item.pubDate && { published_at: new Date(item.pubDate).toISOString() }),
               content_preview: contentPreview,
             },
           },
