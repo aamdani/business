@@ -55,6 +55,9 @@ export async function middleware(request: NextRequest) {
   return supabaseResponse;
 }
 
+// Use Node.js runtime instead of Edge to avoid process.versions compatibility issue
+export const runtime = "nodejs";
+
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
