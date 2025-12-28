@@ -1,24 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Next.js 16: proxy.ts replaces middleware.ts and runs on Node.js runtime
-export async function proxy(request: NextRequest) {
-  // Check environment variables are present
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Missing Supabase environment variables:", {
-      hasUrl: !!supabaseUrl,
-      hasKey: !!supabaseAnonKey,
-    });
-    // Allow request to continue but skip auth check
-    return NextResponse.next();
-  }
-
+export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Skip auth check if env vars missing (will fail elsewhere with better error)
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return supabaseResponse;
+  }
 
   try {
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -44,19 +38,19 @@ export async function proxy(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    // Protected routes - redirect to login if not authenticated
-    const isAuthRoute =
-      request.nextUrl.pathname.startsWith("/login") ||
-      request.nextUrl.pathname.startsWith("/signup");
-    const isPublicRoute = request.nextUrl.pathname === "/" && !user;
-    const isApiRoute = request.nextUrl.pathname.startsWith("/api");
+    const pathname = request.nextUrl.pathname;
+    const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/signup");
+    const isApiRoute = pathname.startsWith("/api");
+    const isRootRoute = pathname === "/";
 
-    if (!user && !isAuthRoute && !isPublicRoute && !isApiRoute) {
+    // Redirect unauthenticated users to login (except public routes)
+    if (!user && !isAuthRoute && !isApiRoute && !isRootRoute) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       return NextResponse.redirect(url);
     }
 
+    // Redirect authenticated users away from auth pages
     if (user && isAuthRoute) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
@@ -64,10 +58,9 @@ export async function proxy(request: NextRequest) {
     }
 
     return supabaseResponse;
-  } catch (error) {
-    console.error("Middleware error:", error);
-    // On error, allow request to continue
-    return NextResponse.next();
+  } catch {
+    // On any error, allow request through (auth will be checked in layouts)
+    return supabaseResponse;
   }
 }
 
