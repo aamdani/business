@@ -322,7 +322,7 @@ export default function HistoryPage() {
                       </CardTitle>
                       <CardDescription className="flex items-center gap-2 mt-1">
                         <span>{formatDate(session.updated_at)}</span>
-                        {session.outputs_count > 0 && (
+                        {(session.outputs_count ?? 0) > 0 && (
                           <span>• {session.outputs_count} outputs</span>
                         )}
                       </CardDescription>
