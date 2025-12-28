@@ -1,0 +1,853 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Loader2,
+  Video,
+  Image,
+  ArrowLeft,
+  Copy,
+  Download,
+  RefreshCw,
+  Clock,
+  Hash,
+  Sparkles,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+
+interface DraftData {
+  title: string;
+  content: string;
+}
+
+interface YouTubeSection {
+  timestamp: string;
+  section_title: string;
+  script_content: string;
+  b_roll_suggestions: string[];
+  on_screen_text?: string;
+}
+
+interface YouTubeScript {
+  title: string;
+  hook: string;
+  thumbnail_concepts: string[];
+  sections: YouTubeSection[];
+  outro: string;
+  call_to_action: string;
+  description: string;
+  tags: string[];
+  estimated_duration: string;
+}
+
+interface TikTokScript {
+  hook: string;
+  script: string;
+  on_screen_text: string[];
+  audio_suggestion?: string;
+  hashtags: string[];
+  estimated_seconds: number;
+  style: string;
+}
+
+interface TikTokResult {
+  topic: string;
+  scripts: TikTokScript[];
+  caption: string;
+  best_posting_times: string[];
+}
+
+interface ImagePrompt {
+  prompt: string;
+  negative_prompt?: string;
+  style_notes: string;
+  aspect_ratio: string;
+  suggested_model: string;
+  alt_text: string;
+}
+
+interface ImagePromptResult {
+  prompts: ImagePrompt[];
+  brand_elements: string[];
+  color_palette: string[];
+}
+
+interface GeneratedImage {
+  image_base64?: string;
+  image_url?: string;
+  model_used: string;
+  revised_prompt?: string;
+}
+
+export default function OutputsPage() {
+  const router = useRouter();
+  const [draftData, setDraftData] = useState<DraftData | null>(null);
+  const [activeTab, setActiveTab] = useState("youtube");
+
+  // YouTube state
+  const [youtubeScript, setYoutubeScript] = useState<YouTubeScript | null>(null);
+  const [isGeneratingYoutube, setIsGeneratingYoutube] = useState(false);
+
+  // TikTok state
+  const [tiktokResult, setTiktokResult] = useState<TikTokResult | null>(null);
+  const [isGeneratingTiktok, setIsGeneratingTiktok] = useState(false);
+
+  // Image prompts state
+  const [imagePrompts, setImagePrompts] = useState<ImagePromptResult | null>(null);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
+  const [imageType, setImageType] = useState<"substack_header" | "youtube_thumbnail" | "social_share">("substack_header");
+
+  // Generated images state (indexed by prompt index)
+  const [generatedImages, setGeneratedImages] = useState<Record<number, GeneratedImage>>({});
+  const [generatingImageIndex, setGeneratingImageIndex] = useState<number | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+
+  // Load draft from sessionStorage on mount
+  useEffect(() => {
+    const stored = sessionStorage.getItem("draftForOutputs");
+    if (stored) {
+      try {
+        setDraftData(JSON.parse(stored));
+      } catch {
+        console.error("Failed to parse stored draft");
+      }
+    }
+  }, []);
+
+  const generateYoutubeScript = useCallback(async () => {
+    if (!draftData) return;
+
+    setIsGeneratingYoutube(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        setError("Please log in to continue");
+        return;
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-youtube-script`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            title: draftData.title,
+            draft_content: draftData.content,
+            target_length: "medium",
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate YouTube script");
+      }
+
+      const data = await response.json();
+      setYoutubeScript(data.result);
+    } catch (err) {
+      console.error("YouTube script error:", err);
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsGeneratingYoutube(false);
+    }
+  }, [draftData]);
+
+  const generateTiktokScripts = useCallback(async () => {
+    if (!draftData) return;
+
+    setIsGeneratingTiktok(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        setError("Please log in to continue");
+        return;
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-tiktok-script`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            title: draftData.title,
+            draft_content: draftData.content,
+            num_scripts: 3,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate TikTok scripts");
+      }
+
+      const data = await response.json();
+      setTiktokResult(data.result);
+    } catch (err) {
+      console.error("TikTok script error:", err);
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsGeneratingTiktok(false);
+    }
+  }, [draftData]);
+
+  const generateImagePrompts = useCallback(async () => {
+    if (!draftData) return;
+
+    setIsGeneratingImages(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        setError("Please log in to continue");
+        return;
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-image-prompt`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            title: draftData.title,
+            draft_excerpt: draftData.content.substring(0, 1000),
+            image_type: imageType,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate image prompts");
+      }
+
+      const data = await response.json();
+      setImagePrompts(data.result);
+    } catch (err) {
+      console.error("Image prompt error:", err);
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsGeneratingImages(false);
+    }
+  }, [draftData, imageType]);
+
+  const generateImage = useCallback(async (promptIndex: number, prompt: ImagePrompt) => {
+    setGeneratingImageIndex(promptIndex);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        setError("Please log in to continue");
+        return;
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-image`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            prompt: prompt.prompt,
+            negative_prompt: prompt.negative_prompt,
+            aspect_ratio: prompt.aspect_ratio,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate image");
+      }
+
+      const data = await response.json();
+      setGeneratedImages(prev => ({
+        ...prev,
+        [promptIndex]: data.result,
+      }));
+    } catch (err) {
+      console.error("Image generation error:", err);
+      setError(err instanceof Error ? err.message : "Failed to generate image");
+    } finally {
+      setGeneratingImageIndex(null);
+    }
+  }, []);
+
+  const downloadImage = useCallback((imageBase64: string, filename: string) => {
+    const link = document.createElement("a");
+    link.href = `data:image/png;base64,${imageBase64}`;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, []);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  if (!draftData) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Outputs</h1>
+          <p className="text-muted-foreground">
+            Generate YouTube scripts, TikTok content, and image prompts.
+          </p>
+        </div>
+
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Video className="h-12 w-12 text-muted-foreground/50 mb-4" />
+            <p className="text-muted-foreground text-center mb-4">
+              No draft found. Please create a draft first.
+            </p>
+            <Button onClick={() => router.push("/draft")}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Go to Draft
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Outputs</h1>
+          <p className="text-muted-foreground">
+            {draftData.title}
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => router.push("/draft")}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Draft
+        </Button>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-destructive bg-destructive/10 p-4">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="youtube" className="flex items-center gap-2">
+            <Video className="h-4 w-4" />
+            YouTube
+          </TabsTrigger>
+          <TabsTrigger value="tiktok" className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            TikTok/Shorts
+          </TabsTrigger>
+          <TabsTrigger value="images" className="flex items-center gap-2">
+            <Image className="h-4 w-4" />
+            Images
+          </TabsTrigger>
+        </TabsList>
+
+        {/* YouTube Tab */}
+        <TabsContent value="youtube" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle>YouTube Script</CardTitle>
+                <CardDescription>
+                  Full video script with timestamps and B-roll suggestions
+                </CardDescription>
+              </div>
+              <Button onClick={generateYoutubeScript} disabled={isGeneratingYoutube}>
+                {isGeneratingYoutube ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : youtubeScript ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Regenerate
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Generate Script
+                  </>
+                )}
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {youtubeScript ? (
+                <div className="space-y-6">
+                  {/* Title & Duration */}
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-semibold">{youtubeScript.title}</h3>
+                    <Badge variant="secondary">
+                      <Clock className="mr-1 h-3 w-3" />
+                      {youtubeScript.estimated_duration}
+                    </Badge>
+                  </div>
+
+                  {/* Thumbnail Concepts */}
+                  <div>
+                    <h4 className="font-medium mb-2">Thumbnail Concepts</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {youtubeScript.thumbnail_concepts.map((concept, i) => (
+                        <Badge key={i} variant="outline">{concept}</Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Hook */}
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium">Opening Hook</h4>
+                      <Button size="sm" variant="ghost" onClick={() => copyToClipboard(youtubeScript.hook)}>
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap">{youtubeScript.hook}</p>
+                  </div>
+
+                  {/* Sections */}
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Script Sections</h4>
+                    {youtubeScript.sections.map((section, i) => (
+                      <Card key={i} className="bg-muted/30">
+                        <CardContent className="pt-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="secondary">{section.timestamp}</Badge>
+                            <span className="font-medium">{section.section_title}</span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap mb-3">{section.script_content}</p>
+                          {section.b_roll_suggestions.length > 0 && (
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-medium">B-Roll: </span>
+                              {section.b_roll_suggestions.join(" | ")}
+                            </div>
+                          )}
+                          {section.on_screen_text && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              <span className="font-medium">On-Screen: </span>
+                              {section.on_screen_text}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+
+                  {/* Outro & CTA */}
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <h4 className="font-medium mb-2">Outro</h4>
+                    <p className="text-sm whitespace-pre-wrap mb-4">{youtubeScript.outro}</p>
+                    <h4 className="font-medium mb-2">Call to Action</h4>
+                    <p className="text-sm">{youtubeScript.call_to_action}</p>
+                  </div>
+
+                  {/* Description & Tags */}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <h4 className="font-medium mb-2">Video Description</h4>
+                      <div className="relative">
+                        <pre className="text-xs bg-muted rounded-lg p-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                          {youtubeScript.description}
+                        </pre>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="absolute top-1 right-1"
+                          onClick={() => copyToClipboard(youtubeScript.description)}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-2">Tags</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {youtubeScript.tags.map((tag, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="mt-2"
+                        onClick={() => copyToClipboard(youtubeScript.tags.join(", "))}
+                      >
+                        <Copy className="mr-1 h-3 w-3" />
+                        Copy Tags
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-center py-8">
+                  Click "Generate Script" to create a YouTube video script from your draft.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TikTok Tab */}
+        <TabsContent value="tiktok" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle>TikTok / Shorts Scripts</CardTitle>
+                <CardDescription>
+                  Short-form video scripts optimized for vertical content
+                </CardDescription>
+              </div>
+              <Button onClick={generateTiktokScripts} disabled={isGeneratingTiktok}>
+                {isGeneratingTiktok ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : tiktokResult ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Regenerate
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Generate Scripts
+                  </>
+                )}
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {tiktokResult ? (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium">Topic: {tiktokResult.topic}</h3>
+                    <div className="text-sm text-muted-foreground">
+                      Best times: {tiktokResult.best_posting_times.join(", ")}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-3">
+                    {tiktokResult.scripts.map((script, i) => (
+                      <Card key={i}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="outline">{script.style}</Badge>
+                            <Badge variant="secondary">~{script.estimated_seconds}s</Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="bg-primary/10 rounded-lg p-3">
+                            <p className="text-xs font-medium text-primary mb-1">Hook:</p>
+                            <p className="text-sm font-medium">{script.hook}</p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Script:</p>
+                            <p className="text-sm whitespace-pre-wrap">{script.script}</p>
+                          </div>
+
+                          {script.on_screen_text.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">On-Screen Text:</p>
+                              <ul className="text-xs space-y-1">
+                                {script.on_screen_text.map((text, j) => (
+                                  <li key={j} className="bg-muted rounded px-2 py-1">{text}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {script.audio_suggestion && (
+                            <div className="text-xs">
+                              <span className="font-medium text-muted-foreground">Audio: </span>
+                              {script.audio_suggestion}
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-1">
+                            {script.hashtags.map((tag, j) => (
+                              <Badge key={j} variant="outline" className="text-xs">
+                                <Hash className="h-2 w-2 mr-0.5" />{tag}
+                              </Badge>
+                            ))}
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => copyToClipboard(`${script.hook}\n\n${script.script}`)}
+                          >
+                            <Copy className="mr-1 h-3 w-3" />
+                            Copy Script
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <h4 className="font-medium mb-2">Caption</h4>
+                    <p className="text-sm whitespace-pre-wrap">{tiktokResult.caption}</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="mt-2"
+                      onClick={() => copyToClipboard(tiktokResult.caption)}
+                    >
+                      <Copy className="mr-1 h-3 w-3" />
+                      Copy Caption
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-center py-8">
+                  Click "Generate Scripts" to create TikTok/Shorts scripts from your draft.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Images Tab */}
+        <TabsContent value="images" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle>Image Prompts</CardTitle>
+                <CardDescription>
+                  AI image generation prompts for your content
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={imageType}
+                  onChange={(e) => setImageType(e.target.value as typeof imageType)}
+                  className="text-sm border rounded-md px-2 py-1 bg-background"
+                >
+                  <option value="substack_header">Substack Header</option>
+                  <option value="youtube_thumbnail">YouTube Thumbnail</option>
+                  <option value="social_share">Social Share</option>
+                </select>
+                <Button onClick={generateImagePrompts} disabled={isGeneratingImages}>
+                  {isGeneratingImages ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : imagePrompts ? (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Regenerate
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Generate Prompts
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {imagePrompts ? (
+                <div className="space-y-6">
+                  {/* Brand Elements & Colors */}
+                  <div className="flex flex-wrap gap-4">
+                    <div>
+                      <h4 className="text-sm font-medium mb-2">Brand Elements</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {imagePrompts.brand_elements.map((el, i) => (
+                          <Badge key={i} variant="outline">{el}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium mb-2">Color Palette</h4>
+                      <div className="flex gap-2">
+                        {imagePrompts.color_palette.map((color, i) => (
+                          <div
+                            key={i}
+                            className="w-8 h-8 rounded-md border"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Prompts */}
+                  <div className="grid gap-4">
+                    {imagePrompts.prompts.map((prompt, i) => (
+                      <Card key={i}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="secondary">Option {i + 1}</Badge>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>{prompt.aspect_ratio}</span>
+                              <span>|</span>
+                              <span>{prompt.suggested_model}</span>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Prompt:</p>
+                            <div className="relative">
+                              <p className="text-sm bg-muted rounded-lg p-3 pr-10">
+                                {prompt.prompt}
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="absolute top-1 right-1"
+                                onClick={() => copyToClipboard(prompt.prompt)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {prompt.negative_prompt && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Negative Prompt:</p>
+                              <p className="text-xs bg-destructive/10 rounded-lg p-2">
+                                {prompt.negative_prompt}
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="text-xs">
+                            <span className="font-medium text-muted-foreground">Style Notes: </span>
+                            {prompt.style_notes}
+                          </div>
+
+                          <div className="text-xs">
+                            <span className="font-medium text-muted-foreground">Alt Text: </span>
+                            {prompt.alt_text}
+                          </div>
+
+                          <Separator className="my-3" />
+
+                          {/* Generate Image Button & Display */}
+                          {generatedImages[i] ? (
+                            <div className="space-y-3">
+                              <div className="relative rounded-lg overflow-hidden border">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={generatedImages[i].image_url || `data:image/png;base64,${generatedImages[i].image_base64}`}
+                                  alt={prompt.alt_text}
+                                  className="w-full h-auto"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs text-muted-foreground">
+                                  Generated with {generatedImages[i].model_used}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => generateImage(i, prompt)}
+                                    disabled={generatingImageIndex !== null}
+                                  >
+                                    <RefreshCw className="mr-1 h-3 w-3" />
+                                    Regenerate
+                                  </Button>
+                                  {generatedImages[i].image_base64 && (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => downloadImage(
+                                        generatedImages[i].image_base64!,
+                                        `${draftData?.title?.replace(/[^a-z0-9]/gi, "_") || "image"}_${i + 1}.png`
+                                      )}
+                                    >
+                                      <Download className="mr-1 h-3 w-3" />
+                                      Download
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <Button
+                              className="w-full"
+                              onClick={() => generateImage(i, prompt)}
+                              disabled={generatingImageIndex !== null}
+                            >
+                              {generatingImageIndex === i ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Generating Image...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="mr-2 h-4 w-4" />
+                                  Generate Image
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-center py-8">
+                  Select an image type and click "Generate Prompts" to create AI image prompts.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
