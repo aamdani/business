@@ -131,17 +131,66 @@ serve(async (req: Request) => {
       duration_ms: durationMs,
     });
 
-    // Save to database if session_id provided
-    if (session_id) {
-      await adminSupabase.from("generated_images").upsert({
-        session_id,
-        prompt,
-        image_url: result.image_url,
-        image_base64: result.image_base64,
-        model_used: modelUsed,
-        aspect_ratio,
-      });
+    // Upload image to storage and save to database
+    let publicUrl: string | undefined;
+    let storagePath: string | undefined;
+
+    if (result.image_base64) {
+      try {
+        // Decode base64 to binary
+        const binaryString = atob(result.image_base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Build storage path: {user_id}/{session_id or 'standalone'}/{uuid}.png
+        const folder = session_id || "standalone";
+        const fileName = `${user.id}/${folder}/${crypto.randomUUID()}.png`;
+        storagePath = fileName;
+
+        // Upload to storage bucket
+        const { error: uploadError } = await adminSupabase.storage
+          .from("generated-images")
+          .upload(fileName, bytes, {
+            contentType: result.mime_type || "image/png",
+            upsert: false,
+          });
+
+        if (uploadError) {
+          console.warn(`[generate-image] Storage upload failed: ${uploadError.message}`);
+          // Continue without storage - will still return base64
+        } else {
+          // Get public URL (bucket is public, URL never expires)
+          const { data: urlData } = adminSupabase.storage
+            .from("generated-images")
+            .getPublicUrl(fileName);
+          publicUrl = urlData.publicUrl;
+          result.image_url = publicUrl;
+          console.log(`[generate-image] Uploaded to storage: ${publicUrl}`);
+        }
+      } catch (storageError) {
+        console.warn(`[generate-image] Storage error:`, storageError);
+        // Continue without storage
+      }
     }
+
+    // Always save to generated_images table (user_id required, session_id optional)
+    const dimensions = getBflDimensions(normalizedAspectRatio);
+    await adminSupabase.from("generated_images").insert({
+      user_id: user.id,
+      session_id: session_id || null,
+      storage_path: storagePath || null,
+      public_url: publicUrl || null,
+      prompt,
+      negative_prompt: negative_prompt || null,
+      model_used: modelUsed,
+      aspect_ratio,
+      width: dimensions.width,
+      height: dimensions.height,
+      file_size: result.image_base64 ? result.image_base64.length : null,
+      mime_type: result.mime_type || "image/png",
+    });
 
     return jsonResponse({
       success: true,

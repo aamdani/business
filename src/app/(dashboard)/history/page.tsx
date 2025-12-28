@@ -55,6 +55,15 @@ interface ContentSession {
   updated_at: string;
   brain_dump?: { raw_content: string; extracted_themes: any };
   outputs_count?: number;
+  images_count?: number;
+}
+
+interface GeneratedImage {
+  id: string;
+  public_url: string | null;
+  prompt: string;
+  model_used: string;
+  created_at: string;
 }
 
 const STATUS_ORDER = ["brain_dump", "research", "outline", "draft", "review", "outputs", "completed"];
@@ -127,7 +136,8 @@ export default function HistoryPage() {
         .select(`
           *,
           content_brain_dumps(raw_content, extracted_themes),
-          content_outputs(id)
+          content_outputs(id),
+          generated_images(id)
         `)
         .order("updated_at", { ascending: false });
 
@@ -144,6 +154,7 @@ export default function HistoryPage() {
         ...session,
         brain_dump: session.content_brain_dumps?.[0],
         outputs_count: session.content_outputs?.length || 0,
+        images_count: session.generated_images?.length || 0,
       }));
 
       setSessions(processed);
@@ -162,14 +173,14 @@ export default function HistoryPage() {
   const handleContinue = (session: ContentSession) => {
     const config = STATUS_CONFIG[session.status];
     if (config) {
-      router.push(`${config.route}?session=${session.id}`);
+      router.push(`${config.route}?session_id=${session.id}`);
     }
   };
 
   const handleView = async (session: ContentSession) => {
     setViewSession(session);
 
-    // Load full session details
+    // Load full session details including images
     const { data } = await supabase
       .from("content_sessions")
       .select(`
@@ -178,7 +189,8 @@ export default function HistoryPage() {
         content_research(*),
         content_outlines(*),
         content_drafts(*),
-        content_outputs(*)
+        content_outputs(*),
+        generated_images(id, public_url, prompt, model_used, created_at)
       `)
       .eq("id", session.id)
       .single();
@@ -187,7 +199,7 @@ export default function HistoryPage() {
   };
 
   const handleGenerateMore = (session: ContentSession) => {
-    router.push(`/outputs?session=${session.id}`);
+    router.push(`/outputs?session_id=${session.id}`);
   };
 
   const handleDelete = async () => {
@@ -324,6 +336,9 @@ export default function HistoryPage() {
                         <span>{formatDate(session.updated_at)}</span>
                         {(session.outputs_count ?? 0) > 0 && (
                           <span>• {session.outputs_count} outputs</span>
+                        )}
+                        {(session.images_count ?? 0) > 0 && (
+                          <span>• {session.images_count} images</span>
                         )}
                       </CardDescription>
                     </div>
@@ -485,7 +500,7 @@ export default function HistoryPage() {
                 {sessionDetails.content_outputs?.length > 0 && (
                   <div>
                     <h3 className="font-medium mb-2 flex items-center gap-2">
-                      <Image className="h-4 w-4" />
+                      <Sparkles className="h-4 w-4" />
                       Outputs ({sessionDetails.content_outputs.length})
                     </h3>
                     <div className="flex flex-wrap gap-2">
@@ -493,6 +508,39 @@ export default function HistoryPage() {
                         <Badge key={o.id} variant="secondary">
                           {o.output_type}
                         </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Generated Images */}
+                {sessionDetails.generated_images?.length > 0 && (
+                  <div>
+                    <h3 className="font-medium mb-2 flex items-center gap-2">
+                      <Image className="h-4 w-4" />
+                      Generated Images ({sessionDetails.generated_images.length})
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {sessionDetails.generated_images.map((img: GeneratedImage) => (
+                        <div key={img.id} className="relative rounded-lg overflow-hidden border">
+                          {img.public_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={img.public_url}
+                              alt={img.prompt.slice(0, 50)}
+                              className="w-full h-auto object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-24 bg-muted flex items-center justify-center">
+                              <Image className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                            <p className="text-xs text-white truncate" title={img.prompt}>
+                              {img.prompt.slice(0, 40)}...
+                            </p>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>

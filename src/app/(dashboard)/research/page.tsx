@@ -50,6 +50,7 @@ export default function ResearchPage() {
   const router = useRouter();
   const initialTheme = searchParams.get("theme") || "";
   const initialDescription = searchParams.get("description") || "";
+  const sessionId = searchParams.get("session_id");
 
   const [theme, setTheme] = useState(initialTheme);
   const [additionalContext, setAdditionalContext] = useState(initialDescription);
@@ -85,6 +86,7 @@ export default function ResearchPage() {
           body: JSON.stringify({
             theme: theme.trim(),
             description: additionalContext.trim() || undefined,
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -97,6 +99,14 @@ export default function ResearchPage() {
       const data = (await response.json()) as ResearchResponse;
       setResult(data.result);
 
+      // Update session status to 'research'
+      if (sessionId) {
+        await supabase
+          .from("content_sessions")
+          .update({ status: "research" })
+          .eq("id", sessionId);
+      }
+
       // Auto-select all key points and data points
       setSelectedPoints(new Set(data.result.key_points));
       setSelectedDataPoints(new Set(data.result.data_points));
@@ -106,7 +116,7 @@ export default function ResearchPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [theme, additionalContext]);
+  }, [theme, additionalContext, sessionId]);
 
   const togglePoint = (point: string) => {
     setSelectedPoints((prev) => {
@@ -133,15 +143,15 @@ export default function ResearchPage() {
   };
 
   const handleContinueToOutline = () => {
-    // Store selected research in sessionStorage for the outline page
-    const selectedResearch = {
-      theme,
-      key_points: Array.from(selectedPoints),
-      data_points: Array.from(selectedDataPoints),
-      summary: result?.summary,
-    };
-    sessionStorage.setItem("selectedResearch", JSON.stringify(selectedResearch));
-    router.push("/outline");
+    // Navigate to outline with session_id
+    // The outline page will load research data from the database
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    // Pass selected points as URL params (or they can be loaded from session)
+    params.set("theme", theme);
+    router.push(`/outline?${params.toString()}`);
   };
 
   return (

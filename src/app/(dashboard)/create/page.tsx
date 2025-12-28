@@ -39,6 +39,7 @@ export default function CreatePage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<BrainDumpResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const handleParse = useCallback(async () => {
     if (!content.trim()) return;
@@ -55,7 +56,23 @@ export default function CreatePage() {
         return;
       }
 
-      // Call the Edge Function
+      // Create a content_session record FIRST
+      const { data: newSession, error: sessionError } = await supabase
+        .from("content_sessions")
+        .insert({
+          status: "brain_dump",
+          title: content.trim().slice(0, 50) + (content.length > 50 ? "..." : ""),
+        })
+        .select()
+        .single();
+
+      if (sessionError) {
+        throw new Error(`Failed to create session: ${sessionError.message}`);
+      }
+
+      setSessionId(newSession.id);
+
+      // Call the Edge Function with session_id
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/parse-brain-dump`,
         {
@@ -64,7 +81,10 @@ export default function CreatePage() {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ content: content.trim() }),
+          body: JSON.stringify({
+            content: content.trim(),
+            session_id: newSession.id,
+          }),
         }
       );
 
@@ -84,11 +104,14 @@ export default function CreatePage() {
   }, [content]);
 
   const handleResearchTopic = (theme: ExtractedTheme) => {
-    // Navigate to research page with this theme
+    // Navigate to research page with session_id and theme
     const params = new URLSearchParams({
       theme: theme.theme,
       description: theme.description,
     });
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
     router.push(`/research?${params.toString()}`);
   };
 

@@ -168,6 +168,12 @@ All implementation plans must be tracked:
 - Mark status when finished: add `## Status: ✅ Complete` at the top
 - Keep completed plans for reference (don't delete)
 
+**See `CLAUDE-PLAN.md` for the full planning workflow.** Use it when:
+- Task touches 3+ files
+- Multiple valid implementation approaches exist
+- Architectural decisions are needed
+- You're unsure of the full scope
+
 ## Database Tables
 
 ### Core Content

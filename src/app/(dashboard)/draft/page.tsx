@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,26 +51,71 @@ interface VoiceScore {
 
 export default function DraftPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session_id");
+
   const [outline, setOutline] = useState<OutlineData | null>(null);
   const [draft, setDraft] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoadingOutline, setIsLoadingOutline] = useState(true);
   const [isCheckingVoice, setIsCheckingVoice] = useState(false);
   const [voiceScore, setVoiceScore] = useState<VoiceScore | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load outline from sessionStorage on mount
+  // Load outline from database using session_id
   useEffect(() => {
-    const stored = sessionStorage.getItem("selectedOutline");
-    if (stored) {
+    async function loadOutline() {
+      if (!sessionId) {
+        setIsLoadingOutline(false);
+        return;
+      }
+
       try {
-        setOutline(JSON.parse(stored));
-      } catch {
-        console.error("Failed to parse stored outline");
+        const supabase = createClient();
+
+        // Fetch outline for this session
+        const { data: outlineData, error: outlineError } = await supabase
+          .from("content_outlines")
+          .select("outline_json")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (outlineError) {
+          console.error("Failed to load outline:", outlineError);
+          setError("Failed to load outline data");
+          setIsLoadingOutline(false);
+          return;
+        }
+
+        if (outlineData?.outline_json) {
+          // Also fetch research summary if available
+          const { data: researchData } = await supabase
+            .from("content_research")
+            .select("response")
+            .eq("session_id", sessionId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+
+          setOutline({
+            ...outlineData.outline_json,
+            research_summary: researchData?.response,
+          });
+        }
+      } catch (err) {
+        console.error("Error loading outline:", err);
+        setError("Failed to load outline data");
+      } finally {
+        setIsLoadingOutline(false);
       }
     }
-  }, []);
+
+    loadOutline();
+  }, [sessionId]);
 
   const handleGenerateDraft = useCallback(async () => {
     if (!outline) return;
@@ -109,6 +154,7 @@ export default function DraftPage() {
               call_to_action: outline.call_to_action,
             },
             research_summary: outline.research_summary,
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -156,20 +202,28 @@ export default function DraftPage() {
       }
 
       setDraft(content);
+
+      // Update session status to 'draft'
+      if (sessionId) {
+        await supabase
+          .from("content_sessions")
+          .update({ status: "draft" })
+          .eq("id", sessionId);
+      }
     } catch (err) {
       console.error("Draft generation error:", err);
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsGenerating(false);
     }
-  }, [outline]);
+  }, [outline, sessionId]);
 
-  // Auto-generate on mount if outline is available
+  // Auto-generate on mount if outline is available (wait for outline to load)
   useEffect(() => {
-    if (outline && !draft && !isGenerating) {
+    if (outline && !draft && !isGenerating && !isLoadingOutline) {
       handleGenerateDraft();
     }
-  }, [outline, draft, isGenerating, handleGenerateDraft]);
+  }, [outline, draft, isGenerating, isLoadingOutline, handleGenerateDraft]);
 
   const handleCheckVoice = useCallback(async () => {
     if (!draft.trim()) return;
@@ -268,6 +322,45 @@ export default function DraftPage() {
     return "destructive";
   };
 
+  const handleBackToOutline = () => {
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    router.push(`/outline?${params.toString()}`);
+  };
+
+  const handleGoToOutputs = () => {
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    router.push(`/outputs?${params.toString()}`);
+  };
+
+  // Show loading while fetching outline from database
+  if (isLoadingOutline) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Draft</h1>
+          <p className="text-muted-foreground">
+            Generate and edit your content draft.
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground text-center">
+              Loading outline data...
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!outline) {
     return (
       <div className="space-y-6">
@@ -282,11 +375,13 @@ export default function DraftPage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <FileText className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <p className="text-muted-foreground text-center mb-4">
-              No outline found. Please create an outline first.
+              {sessionId
+                ? "No outline found for this session."
+                : "No session found. Please start from the beginning."}
             </p>
-            <Button onClick={() => router.push("/outline")}>
+            <Button onClick={handleBackToOutline}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Go to Outline
+              {sessionId ? "Go to Outline" : "Start New Session"}
             </Button>
           </CardContent>
         </Card>
@@ -306,7 +401,7 @@ export default function DraftPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/outline")}>
+          <Button variant="outline" onClick={handleBackToOutline}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
@@ -320,13 +415,7 @@ export default function DraftPage() {
                 <Download className="mr-2 h-4 w-4" />
                 Download
               </Button>
-              <Button onClick={() => {
-                sessionStorage.setItem("draftForOutputs", JSON.stringify({
-                  title: outline.title,
-                  content: draft,
-                }));
-                router.push("/outputs");
-              }}>
+              <Button onClick={handleGoToOutputs}>
                 Generate Outputs
               </Button>
             </>

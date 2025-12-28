@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -56,27 +56,114 @@ interface ResearchData {
   summary?: string;
 }
 
+// Helper: Extract key points from research text (same logic as Edge Function)
+function extractKeyPoints(content: string): string[] {
+  const lines = content.split("\n");
+  const keyPoints: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (
+      trimmed.startsWith("- ") ||
+      trimmed.startsWith("• ") ||
+      trimmed.startsWith("* ") ||
+      /^\d+\.\s/.test(trimmed)
+    ) {
+      const point = trimmed.replace(/^[-•*\d.]\s*/, "").trim();
+      if (point.length > 10 && point.length < 300) {
+        keyPoints.push(point);
+      }
+    }
+  }
+
+  return keyPoints.slice(0, 10);
+}
+
+// Helper: Extract data points from research text (same logic as Edge Function)
+function extractDataPoints(content: string): string[] {
+  const dataPoints: string[] = [];
+  const sentences = content.split(/[.!]\s/);
+
+  for (const sentence of sentences) {
+    if (
+      /\d+%/.test(sentence) ||
+      /\$[\d,]+/.test(sentence) ||
+      /\d{4}/.test(sentence) ||
+      /\d+\s*(million|billion|thousand)/i.test(sentence)
+    ) {
+      const cleaned = sentence.trim();
+      if (cleaned.length > 20 && cleaned.length < 250) {
+        dataPoints.push(cleaned);
+      }
+    }
+  }
+
+  return dataPoints.slice(0, 8);
+}
+
 export default function OutlinePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session_id");
+  const themeFromUrl = searchParams.get("theme");
+
   const [research, setResearch] = useState<ResearchData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingResearch, setIsLoadingResearch] = useState(true);
   const [result, setResult] = useState<OutlineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [userInput, setUserInput] = useState("");
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
-  // Load research data from sessionStorage on mount
+  // Load research data from database using session_id
   useEffect(() => {
-    const stored = sessionStorage.getItem("selectedResearch");
-    if (stored) {
+    async function loadResearch() {
+      if (!sessionId) {
+        setIsLoadingResearch(false);
+        return;
+      }
+
       try {
-        const data = JSON.parse(stored) as ResearchData;
-        setResearch(data);
-      } catch {
-        console.error("Failed to parse stored research");
+        const supabase = createClient();
+
+        // Fetch research for this session
+        const { data: researchData, error: researchError } = await supabase
+          .from("content_research")
+          .select("query, response, sources")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (researchError) {
+          console.error("Failed to load research:", researchError);
+          setError("Failed to load research data");
+          setIsLoadingResearch(false);
+          return;
+        }
+
+        if (researchData) {
+          // Re-extract key_points and data_points from the stored response
+          const keyPoints = extractKeyPoints(researchData.response);
+          const dataPoints = extractDataPoints(researchData.response);
+
+          setResearch({
+            theme: researchData.query || themeFromUrl || "",
+            key_points: keyPoints,
+            data_points: dataPoints,
+            summary: researchData.response,
+          });
+        }
+      } catch (err) {
+        console.error("Error loading research:", err);
+        setError("Failed to load research data");
+      } finally {
+        setIsLoadingResearch(false);
       }
     }
-  }, []);
+
+    loadResearch();
+  }, [sessionId, themeFromUrl]);
 
   const handleGenerateOutline = useCallback(async () => {
     if (!research) return;
@@ -106,6 +193,7 @@ export default function OutlinePage() {
             research_summary: research.summary,
             key_points: [...research.key_points, ...research.data_points],
             user_input: userInput.trim() || undefined,
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -120,20 +208,28 @@ export default function OutlinePage() {
 
       // Expand first section by default
       setExpandedSections(new Set([0]));
+
+      // Update session status to 'outline'
+      if (sessionId) {
+        await supabase
+          .from("content_sessions")
+          .update({ status: "outline" })
+          .eq("id", sessionId);
+      }
     } catch (err) {
       console.error("Outline error:", err);
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsLoading(false);
     }
-  }, [research, userInput]);
+  }, [research, userInput, sessionId]);
 
-  // Auto-generate on mount if research is available
+  // Auto-generate on mount if research is available (wait for research to load)
   useEffect(() => {
-    if (research && !result && !isLoading) {
+    if (research && !result && !isLoading && !isLoadingResearch) {
       handleGenerateOutline();
     }
-  }, [research, result, isLoading, handleGenerateOutline]);
+  }, [research, result, isLoading, isLoadingResearch, handleGenerateOutline]);
 
   const toggleSection = (index: number) => {
     setExpandedSections((prev) => {
@@ -150,17 +246,44 @@ export default function OutlinePage() {
   const handleContinueToDraft = () => {
     if (!result) return;
 
-    // Store outline for draft generation
-    sessionStorage.setItem("selectedOutline", JSON.stringify({
-      ...result.outline,
-      research_summary: research?.summary,
-    }));
-    router.push("/draft");
+    // Navigate to draft with session_id in URL (outline is saved in database)
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    router.push(`/draft?${params.toString()}`);
   };
 
   const handleBackToResearch = () => {
-    router.push("/research");
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    router.push(`/research?${params.toString()}`);
   };
+
+  // Show loading while fetching research from database
+  if (isLoadingResearch) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Outline</h1>
+          <p className="text-muted-foreground">
+            Create a detailed outline for your content.
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground text-center">
+              Loading research data...
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (!research) {
     return (
@@ -176,11 +299,13 @@ export default function OutlinePage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <FileText className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <p className="text-muted-foreground text-center mb-4">
-              No research data found. Please start with research first.
+              {sessionId
+                ? "No research data found for this session."
+                : "No session found. Please start from the beginning."}
             </p>
             <Button onClick={handleBackToResearch}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Go to Research
+              {sessionId ? "Go to Research" : "Start New Session"}
             </Button>
           </CardContent>
         </Card>

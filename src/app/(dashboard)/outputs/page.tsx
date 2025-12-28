@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -88,7 +88,11 @@ interface GeneratedImage {
 
 export default function OutputsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session_id");
+
   const [draftData, setDraftData] = useState<DraftData | null>(null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(true);
   const [activeTab, setActiveTab] = useState("youtube");
 
   // YouTube state
@@ -113,17 +117,80 @@ export default function OutputsPage() {
   // Guideline overrides for image generation
   const { overrides: guidelineOverrides, handleChange: handleGuidelineChange } = useGuidelineOverrides();
 
-  // Load draft from sessionStorage on mount
+  // Load draft from database using session_id
   useEffect(() => {
-    const stored = sessionStorage.getItem("draftForOutputs");
-    if (stored) {
+    async function loadDraft() {
+      if (!sessionId) {
+        setIsLoadingDraft(false);
+        return;
+      }
+
       try {
-        setDraftData(JSON.parse(stored));
-      } catch {
-        console.error("Failed to parse stored draft");
+        const supabase = createClient();
+
+        // Fetch draft for this session
+        const { data: draftRecord, error: draftError } = await supabase
+          .from("content_drafts")
+          .select("content")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (draftError) {
+          console.error("Failed to load draft:", draftError);
+          setError("Failed to load draft data");
+          setIsLoadingDraft(false);
+          return;
+        }
+
+        // Also fetch the session title from outline
+        const { data: outlineData } = await supabase
+          .from("content_outlines")
+          .select("outline_json")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        // Get title from outline or session
+        let title = "Untitled Draft";
+        if (outlineData?.outline_json?.title) {
+          title = outlineData.outline_json.title;
+        } else {
+          // Fallback to session title
+          const { data: sessionData } = await supabase
+            .from("content_sessions")
+            .select("title")
+            .eq("id", sessionId)
+            .single();
+          if (sessionData?.title) {
+            title = sessionData.title;
+          }
+        }
+
+        if (draftRecord) {
+          setDraftData({
+            title,
+            content: draftRecord.content,
+          });
+
+          // Update session status to 'outputs'
+          await supabase
+            .from("content_sessions")
+            .update({ status: "outputs" })
+            .eq("id", sessionId);
+        }
+      } catch (err) {
+        console.error("Error loading draft:", err);
+        setError("Failed to load draft data");
+      } finally {
+        setIsLoadingDraft(false);
       }
     }
-  }, []);
+
+    loadDraft();
+  }, [sessionId]);
 
   const generateYoutubeScript = useCallback(async () => {
     if (!draftData) return;
@@ -152,6 +219,7 @@ export default function OutputsPage() {
             title: draftData.title,
             draft_content: draftData.content,
             target_length: "medium",
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -169,7 +237,7 @@ export default function OutputsPage() {
     } finally {
       setIsGeneratingYoutube(false);
     }
-  }, [draftData]);
+  }, [draftData, sessionId]);
 
   const generateTiktokScripts = useCallback(async () => {
     if (!draftData) return;
@@ -198,6 +266,7 @@ export default function OutputsPage() {
             title: draftData.title,
             draft_content: draftData.content,
             num_scripts: 3,
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -215,7 +284,7 @@ export default function OutputsPage() {
     } finally {
       setIsGeneratingTiktok(false);
     }
-  }, [draftData]);
+  }, [draftData, sessionId]);
 
   const generateImagePrompts = useCallback(async () => {
     if (!draftData) return;
@@ -245,6 +314,7 @@ export default function OutputsPage() {
             draft_excerpt: draftData.content.substring(0, 1000),
             image_type: imageType,
             guideline_overrides: Object.keys(guidelineOverrides).length > 0 ? guidelineOverrides : undefined,
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -262,7 +332,7 @@ export default function OutputsPage() {
     } finally {
       setIsGeneratingImages(false);
     }
-  }, [draftData, imageType, guidelineOverrides]);
+  }, [draftData, imageType, guidelineOverrides, sessionId]);
 
   const generateImage = useCallback(async (promptIndex: number, prompt: ImagePrompt) => {
     setGeneratingImageIndex(promptIndex);
@@ -289,6 +359,7 @@ export default function OutputsPage() {
             prompt: prompt.prompt,
             negative_prompt: prompt.negative_prompt,
             aspect_ratio: prompt.aspect_ratio,
+            session_id: sessionId || undefined,
           }),
         }
       );
@@ -309,7 +380,7 @@ export default function OutputsPage() {
     } finally {
       setGeneratingImageIndex(null);
     }
-  }, []);
+  }, [sessionId]);
 
   const downloadImage = useCallback((imageBase64: string, filename: string) => {
     const link = document.createElement("a");
@@ -323,6 +394,37 @@ export default function OutputsPage() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
+
+  const handleBackToDraft = () => {
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    router.push(`/draft?${params.toString()}`);
+  };
+
+  // Show loading while fetching draft from database
+  if (isLoadingDraft) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Outputs</h1>
+          <p className="text-muted-foreground">
+            Generate YouTube scripts, TikTok content, and image prompts.
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground text-center">
+              Loading draft data...
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (!draftData) {
     return (
@@ -338,11 +440,13 @@ export default function OutputsPage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Video className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <p className="text-muted-foreground text-center mb-4">
-              No draft found. Please create a draft first.
+              {sessionId
+                ? "No draft found for this session."
+                : "No session found. Please start from the beginning."}
             </p>
-            <Button onClick={() => router.push("/draft")}>
+            <Button onClick={handleBackToDraft}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Go to Draft
+              {sessionId ? "Go to Draft" : "Start New Session"}
             </Button>
           </CardContent>
         </Card>
@@ -359,7 +463,7 @@ export default function OutputsPage() {
             {draftData.title}
           </p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/draft")}>
+        <Button variant="outline" onClick={handleBackToDraft}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Draft
         </Button>
