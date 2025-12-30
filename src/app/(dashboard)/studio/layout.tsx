@@ -9,6 +9,7 @@ import {
   Globe,
   Palette,
   FlaskConical,
+  ScrollText,
 } from "lucide-react";
 
 const tabs = [
@@ -17,6 +18,7 @@ const tabs = [
   { href: "/studio/destinations", label: "Destinations", icon: Globe },
   { href: "/studio/guidelines", label: "Guidelines", icon: Palette },
   { href: "/studio/test", label: "Test", icon: FlaskConical },
+  { href: "/studio/logs", label: "Logs", icon: ScrollText },
 ];
 
 export default function StudioLayout({

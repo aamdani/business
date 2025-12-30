@@ -27,7 +27,7 @@ export function getPineconeIndex() {
 // Namespaces used in this project
 export const PINECONE_NAMESPACES = {
   POSTS: "content-hub-posts",        // Jon's and Nate's posts
-  RESEARCH: "content-hub-research",  // Perplexity research results
+  RESEARCH: "research",              // Perplexity research results
   BRAIN_DUMPS: "content-hub-brain-dumps", // Processed brain dumps
 } as const;
 

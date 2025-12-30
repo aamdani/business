@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useDebouncedCallback } from "use-debounce";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,17 +38,21 @@ interface OutlineData {
   research_summary?: string;
 }
 
+// VoiceScore feedback item - can be a string or an object with details
+type FeedbackItem = string | { [key: string]: string | number };
+
 interface VoiceScore {
-  overall_score: number;
-  scores: {
+  overall_score?: number;
+  score?: number; // Legacy field name
+  scores?: {
     tone: number;
     style: number;
     vocabulary: number;
     personality: number;
   };
-  strengths: string[];
-  warnings: string[];
-  suggestions: string[];
+  strengths?: FeedbackItem[];
+  warnings?: FeedbackItem[];
+  suggestions?: FeedbackItem[];
 }
 
 export default function DraftPage() {
@@ -180,9 +185,47 @@ export default function DraftPage() {
     if (result?.success && result.content) {
       setDraft(result.content);
 
-      // Update session status to 'draft'
+      // Save draft and update session status
       if (sessionId) {
         const supabase = createClient();
+
+        // Check if draft exists for this session
+        const { data: existingDraft } = await supabase
+          .from("content_drafts")
+          .select("id")
+          .eq("session_id", sessionId)
+          .single();
+
+        let saveDraftError;
+        if (existingDraft) {
+          // Update existing draft
+          const { error } = await supabase
+            .from("content_drafts")
+            .update({
+              content: result.content,
+              voice_score: null,
+              version: 1,
+            })
+            .eq("session_id", sessionId);
+          saveDraftError = error;
+        } else {
+          // Insert new draft
+          const { error } = await supabase
+            .from("content_drafts")
+            .insert({
+              session_id: sessionId,
+              content: result.content,
+              voice_score: null,
+              version: 1,
+            });
+          saveDraftError = error;
+        }
+
+        if (saveDraftError) {
+          console.error("Failed to save draft:", saveDraftError);
+        }
+
+        // Update session status to 'draft'
         await supabase
           .from("content_sessions")
           .update({ status: "draft" })
@@ -212,8 +255,39 @@ export default function DraftPage() {
 
     if (result) {
       setVoiceScore(result);
+
+      // Save voice score to database
+      if (sessionId) {
+        const supabase = createClient();
+        await supabase
+          .from("content_drafts")
+          .update({ voice_score: result })
+          .eq("session_id", sessionId);
+      }
     }
   }, [draft, sessionId, checkVoice]);
+
+  // Debounced auto-save for draft edits
+  const debouncedSaveDraft = useDebouncedCallback(
+    async (content: string) => {
+      if (!sessionId || !content.trim()) return;
+      const supabase = createClient();
+      await supabase
+        .from("content_drafts")
+        .update({ content })
+        .eq("session_id", sessionId);
+    },
+    2000 // Save 2 seconds after user stops typing
+  );
+
+  const handleDraftChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const newContent = e.target.value;
+      setDraft(newContent);
+      debouncedSaveDraft(newContent);
+    },
+    [debouncedSaveDraft]
+  );
 
   const handleCopyDraft = () => {
     navigator.clipboard.writeText(draft);
@@ -404,7 +478,7 @@ export default function DraftPage() {
               <Textarea
                 ref={textareaRef}
                 value={displayContent}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={handleDraftChange}
                 className="min-h-[500px] font-mono text-sm"
                 placeholder={isGenerating ? "Generating your draft..." : "Your draft will appear here..."}
                 disabled={isGenerating}
@@ -461,29 +535,31 @@ export default function DraftPage() {
                 <>
                   <Separator />
 
-                  {/* Overall Score */}
+                  {/* Overall Score - support both overall_score and legacy score field */}
                   <div className="text-center">
-                    <div className={`text-4xl font-bold ${getScoreColor(voiceScore.overall_score)}`}>
-                      {voiceScore.overall_score}
+                    <div className={`text-4xl font-bold ${getScoreColor(voiceScore.overall_score ?? (voiceScore as unknown as { score?: number }).score ?? 0)}`}>
+                      {voiceScore.overall_score ?? (voiceScore as unknown as { score?: number }).score ?? 0}
                     </div>
                     <p className="text-sm text-muted-foreground">Overall Score</p>
                   </div>
 
-                  {/* Individual Scores */}
-                  <div className="space-y-3">
-                    {Object.entries(voiceScore.scores).map(([key, value]) => (
-                      <div key={key} className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="capitalize">{key}</span>
-                          <span className={getScoreColor(value)}>{value}</span>
+                  {/* Individual Scores - only render if scores object exists */}
+                  {voiceScore.scores && Object.keys(voiceScore.scores).length > 0 && (
+                    <div className="space-y-3">
+                      {Object.entries(voiceScore.scores).map(([key, value]) => (
+                        <div key={key} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="capitalize">{key}</span>
+                            <span className={getScoreColor(value)}>{value}</span>
+                          </div>
+                          <Progress value={value} className="h-2" />
                         </div>
-                        <Progress value={value} className="h-2" />
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
 
-                  {/* Strengths */}
-                  {voiceScore.strengths.length > 0 && (
+                  {/* Strengths - defensive check for array */}
+                  {voiceScore.strengths && voiceScore.strengths.length > 0 && (
                     <>
                       <Separator />
                       <div>
@@ -494,7 +570,7 @@ export default function DraftPage() {
                         <ul className="space-y-1">
                           {voiceScore.strengths.map((s, i) => (
                             <li key={i} className="text-sm text-muted-foreground">
-                              {s}
+                              {typeof s === "string" ? s : (s as { strength?: string; detail?: string }).strength || (s as { strength?: string; detail?: string }).detail || JSON.stringify(s)}
                             </li>
                           ))}
                         </ul>
@@ -502,8 +578,8 @@ export default function DraftPage() {
                     </>
                   )}
 
-                  {/* Warnings */}
-                  {voiceScore.warnings.length > 0 && (
+                  {/* Warnings - defensive check for array */}
+                  {voiceScore.warnings && voiceScore.warnings.length > 0 && (
                     <>
                       <Separator />
                       <div>
@@ -514,7 +590,7 @@ export default function DraftPage() {
                         <ul className="space-y-1">
                           {voiceScore.warnings.map((w, i) => (
                             <li key={i} className="text-sm text-muted-foreground">
-                              {w}
+                              {typeof w === "string" ? w : (w as { issue?: string; detail?: string }).issue || (w as { issue?: string; detail?: string }).detail || JSON.stringify(w)}
                             </li>
                           ))}
                         </ul>
@@ -522,8 +598,8 @@ export default function DraftPage() {
                     </>
                   )}
 
-                  {/* Suggestions */}
-                  {voiceScore.suggestions.length > 0 && (
+                  {/* Suggestions - defensive check for array */}
+                  {voiceScore.suggestions && voiceScore.suggestions.length > 0 && (
                     <>
                       <Separator />
                       <div>
@@ -534,7 +610,7 @@ export default function DraftPage() {
                         <ul className="space-y-1">
                           {voiceScore.suggestions.map((s, i) => (
                             <li key={i} className="text-sm text-muted-foreground">
-                              {s}
+                              {typeof s === "string" ? s : (s as { suggestion?: string; detail?: string }).suggestion || (s as { suggestion?: string; detail?: string }).detail || JSON.stringify(s)}
                             </li>
                           ))}
                         </ul>

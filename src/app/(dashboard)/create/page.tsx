@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Sparkles, Brain, Lightbulb, ArrowRight, Check } from "lucide-react";
+import { Loader2, Sparkles, Brain, Lightbulb, ArrowRight, Check, BookOpen } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { createClient } from "@/lib/supabase/client";
 import { useGenerateJSON } from "@/hooks/use-generate";
 
@@ -46,12 +47,21 @@ export default function CreatePage() {
 
   // Use the new universal generate hook
   const { generateJSON, isLoading: isProcessing, error: generateError } = useGenerateJSON<BrainDumpResult>();
-  const error = generateError?.message || null;
+
+  // Track save errors separately so user knows when persistence fails
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const error = saveError || generateError?.message || null;
 
   // Selection state for research items
   const [selectedThemes, setSelectedThemes] = useState<Set<number>>(new Set());
   const [selectedQueries, setSelectedQueries] = useState<Set<number>>(new Set());
   const [selectedInsights, setSelectedInsights] = useState<Set<number>>(new Set());
+
+  // Skip research option (for opinion pieces)
+  const [skipResearch, setSkipResearch] = useState(false);
+
+  // Track whether selections were loaded from database (to prevent auto-select override)
+  const [selectionsLoaded, setSelectionsLoaded] = useState(false);
 
   // Load existing session if session_id is in URL
   useEffect(() => {
@@ -65,7 +75,7 @@ export default function CreatePage() {
           .from("content_sessions")
           .select(`
             *,
-            content_brain_dumps(raw_content, extracted_themes)
+            content_brain_dumps(raw_content, extracted_themes, user_selections)
           `)
           .eq("id", sessionIdFromUrl)
           .single();
@@ -89,6 +99,29 @@ export default function CreatePage() {
             if (brainDump.extracted_themes) {
               setResult(brainDump.extracted_themes);
             }
+
+            // Load user selections if they exist
+            if (brainDump.user_selections) {
+              const selections = brainDump.user_selections as {
+                selected_theme_indices?: number[];
+                selected_query_indices?: number[];
+                selected_insight_indices?: number[];
+                skip_research?: boolean;
+              };
+              if (selections.selected_theme_indices) {
+                setSelectedThemes(new Set(selections.selected_theme_indices));
+              }
+              if (selections.selected_query_indices) {
+                setSelectedQueries(new Set(selections.selected_query_indices));
+              }
+              if (selections.selected_insight_indices) {
+                setSelectedInsights(new Set(selections.selected_insight_indices));
+              }
+              if (selections.skip_research !== undefined) {
+                setSkipResearch(selections.skip_research);
+              }
+              setSelectionsLoaded(true);
+            }
           }
         }
       } catch (err) {
@@ -101,14 +134,14 @@ export default function CreatePage() {
     loadExistingSession();
   }, [sessionIdFromUrl]);
 
-  // Auto-select first theme and first 2 queries when results come in
+  // Auto-select first theme and first 2 queries when results come in (only if not loaded from DB)
   useEffect(() => {
-    if (result) {
+    if (result && !selectionsLoaded) {
       setSelectedThemes(new Set([0])); // Select first theme
       setSelectedQueries(new Set(result.suggested_research_queries.slice(0, 2).map((_, i) => i)));
       setSelectedInsights(new Set()); // Insights are optional, start unselected
     }
-  }, [result]);
+  }, [result, selectionsLoaded]);
 
   const toggleTheme = (idx: number) => {
     setSelectedThemes((prev) => {
@@ -151,6 +184,9 @@ export default function CreatePage() {
   const handleParse = useCallback(async () => {
     if (!content.trim()) return;
 
+    // Clear previous errors
+    setSaveError(null);
+
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
 
@@ -174,6 +210,7 @@ export default function CreatePage() {
 
       if (sessionError) {
         console.error("Failed to create session:", sessionError);
+        setSaveError(`Failed to create session: ${sessionError.message}`);
         return;
       }
 
@@ -201,16 +238,76 @@ export default function CreatePage() {
 
     if (parsed) {
       setResult(parsed);
+
+      // Check if brain dump exists for this session
+      const { data: existingBrainDump } = await supabase
+        .from("content_brain_dumps")
+        .select("id")
+        .eq("session_id", activeSessionId)
+        .single();
+
+      let brainDumpError;
+      if (existingBrainDump) {
+        // Update existing brain dump
+        const { error } = await supabase
+          .from("content_brain_dumps")
+          .update({
+            raw_content: content.trim(),
+            extracted_themes: parsed,
+          })
+          .eq("session_id", activeSessionId);
+        brainDumpError = error;
+      } else {
+        // Insert new brain dump
+        const { error } = await supabase
+          .from("content_brain_dumps")
+          .insert({
+            session_id: activeSessionId,
+            raw_content: content.trim(),
+            extracted_themes: parsed,
+          });
+        brainDumpError = error;
+      }
+
+      if (brainDumpError) {
+        console.error("Failed to save brain dump:", brainDumpError);
+        setSaveError(`Failed to save brain dump: ${brainDumpError.message}. Your work may not be preserved.`);
+      } else {
+        // Clear any previous save errors on success
+        setSaveError(null);
+      }
     }
   }, [content, sessionId, generateJSON]);
 
-  const handleContinueToResearch = () => {
-    if (!result || totalSelected === 0) return;
+  const handleContinue = async () => {
+    if (!result || (!skipResearch && totalSelected === 0)) return;
 
     // Gather selected items
     const selectedThemeData = result.themes.filter((_, idx) => selectedThemes.has(idx));
     const selectedQueryData = result.suggested_research_queries.filter((_, idx) => selectedQueries.has(idx));
     const selectedInsightData = result.key_insights.filter((_, idx) => selectedInsights.has(idx));
+
+    // Save selections to database
+    if (sessionId) {
+      const supabase = createClient();
+      const { error: selectionsError } = await supabase
+        .from("content_brain_dumps")
+        .update({
+          user_selections: {
+            selected_theme_indices: Array.from(selectedThemes),
+            selected_query_indices: Array.from(selectedQueries),
+            selected_insight_indices: Array.from(selectedInsights),
+            skip_research: skipResearch,
+          },
+        })
+        .eq("session_id", sessionId);
+
+      if (selectionsError) {
+        console.error("Failed to save selections:", selectionsError);
+        // Don't block navigation, but warn the user
+        setSaveError(`Warning: Selections may not be saved. ${selectionsError.message}`);
+      }
+    }
 
     // Store in sessionStorage for cleaner URL
     sessionStorage.setItem(
@@ -223,13 +320,21 @@ export default function CreatePage() {
       })
     );
 
-    // Navigate to research page with session_id
+    // Navigate based on skip research choice
     const params = new URLSearchParams();
     if (sessionId) {
       params.set("session_id", sessionId);
     }
-    params.set("from_brain_dump", "true");
-    router.push(`/research?${params.toString()}`);
+
+    if (skipResearch) {
+      // Skip research - go directly to outline
+      params.set("from_brain_dump", "true");
+      router.push(`/outline?${params.toString()}`);
+    } else {
+      // Normal flow - go to research
+      params.set("from_brain_dump", "true");
+      router.push(`/research?${params.toString()}`);
+    }
   };
 
   // Show loading state when loading existing session
@@ -477,13 +582,40 @@ For example:
                       <Badge variant="secondary">{selectedInsights.size}</Badge>
                     </div>
                     <Separator />
+
+                    {/* Skip Research Option */}
+                    <div className="flex items-start space-x-3 py-2">
+                      <Checkbox
+                        id="skip-research"
+                        checked={skipResearch}
+                        onCheckedChange={(checked) => setSkipResearch(checked === true)}
+                      />
+                      <div className="grid gap-1.5 leading-none">
+                        <label
+                          htmlFor="skip-research"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                        >
+                          Skip research (opinion piece)
+                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          Go directly to outline without gathering research
+                        </p>
+                      </div>
+                    </div>
+
                     <Button
                       className="w-full"
                       size="lg"
-                      onClick={handleContinueToResearch}
-                      disabled={totalSelected === 0}
+                      onClick={handleContinue}
+                      disabled={!skipResearch && totalSelected === 0}
                     >
-                      {totalSelected === 0 ? (
+                      {skipResearch ? (
+                        <>
+                          <BookOpen className="mr-2 h-4 w-4" />
+                          Continue to Outline
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </>
+                      ) : totalSelected === 0 ? (
                         "Select items to continue"
                       ) : (
                         <>

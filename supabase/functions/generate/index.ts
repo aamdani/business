@@ -76,9 +76,9 @@ interface GenerateResponse {
 
 // Main handler
 serve(async (req: Request) => {
-  // Handle CORS
+  // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return handleCors();
+    return new Response("ok", { headers: corsHeaders });
   }
 
   const startTime = Date.now();
@@ -127,6 +127,9 @@ serve(async (req: Request) => {
 
     // 5. Assemble system prompt
     const systemPrompt = interpolateTemplate(promptConfig.promptContent, {
+      // Runtime variables from request (e.g., content, research_summary, key_points)
+      ...variables,
+
       // Model-specific instructions
       model_instructions: modelConfig.systemPromptTips || "",
       model_format: modelConfig.formatInstructions || "",

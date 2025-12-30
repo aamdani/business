@@ -55,6 +55,8 @@ interface ResearchData {
   key_points: string[];
   data_points: string[];
   summary?: string;
+  userNotes?: string;
+  rawBrainDump?: string;
 }
 
 // Helper: Extract key points from research text (same logic as Edge Function)
@@ -130,10 +132,10 @@ export default function OutlinePage() {
       try {
         const supabase = createClient();
 
-        // Fetch research for this session
+        // Fetch research for this session (including user notes)
         const { data: researchData, error: researchError } = await supabase
           .from("content_research")
-          .select("query, response, sources")
+          .select("query, response, sources, user_notes")
           .eq("session_id", sessionId)
           .order("created_at", { ascending: false })
           .limit(1)
@@ -146,6 +148,29 @@ export default function OutlinePage() {
           return;
         }
 
+        // Also fetch brain dump for raw content
+        const { data: brainDumpData } = await supabase
+          .from("content_brain_dumps")
+          .select("raw_content")
+          .eq("session_id", sessionId)
+          .single();
+
+        // Check sessionStorage for outline_context (set by research page)
+        let sessionUserNotes = "";
+        let sessionRawBrainDump = "";
+        const storedContext = sessionStorage.getItem("outline_context");
+        if (storedContext) {
+          try {
+            const context = JSON.parse(storedContext);
+            sessionUserNotes = context.userNotes || "";
+            sessionRawBrainDump = context.rawBrainDump || "";
+            // Clear after reading
+            sessionStorage.removeItem("outline_context");
+          } catch {
+            console.error("Failed to parse outline_context");
+          }
+        }
+
         if (researchData) {
           // Re-extract key_points and data_points from the stored response
           const keyPoints = extractKeyPoints(researchData.response);
@@ -156,7 +181,37 @@ export default function OutlinePage() {
             key_points: keyPoints,
             data_points: dataPoints,
             summary: researchData.response,
+            // Prefer database values, fall back to sessionStorage
+            userNotes: researchData.user_notes || sessionUserNotes || "",
+            rawBrainDump: brainDumpData?.raw_content || sessionRawBrainDump || "",
           });
+        }
+
+        // Check for existing outline (for resume functionality)
+        const { data: existingOutline } = await supabase
+          .from("content_outlines")
+          .select("outline_json, user_feedback")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (existingOutline?.outline_json) {
+          // Validate outline structure before setting
+          const loadedOutline = existingOutline.outline_json as Outline;
+          if (loadedOutline && loadedOutline.title && loadedOutline.sections) {
+            setResult({
+              outline: loadedOutline,
+              summary: "",
+              alternative_angles: [],
+            });
+            setExpandedSections(new Set([0]));
+            if (existingOutline.user_feedback) {
+              setUserInput(existingOutline.user_feedback);
+            }
+          } else {
+            console.warn("Existing outline has invalid structure:", existingOutline.outline_json);
+          }
         }
       } catch (err) {
         console.error("Error loading research:", err);
@@ -172,6 +227,9 @@ export default function OutlinePage() {
   const handleGenerateOutline = useCallback(async () => {
     if (!research) return;
 
+    // Clear any previous errors
+    setLoadError(null);
+
     // Use the universal generate endpoint
     const parsed = await generateJSON({
       prompt_slug: "outline_generator",
@@ -181,23 +239,92 @@ export default function OutlinePage() {
         research_summary: research.summary || "",
         key_points: [...research.key_points, ...research.data_points].join("\n"),
         user_input: userInput.trim() || "",
+        // Include user notes from research and original brain dump
+        user_research_notes: research.userNotes || "No research commentary provided.",
+        raw_brain_dump: research.rawBrainDump || "No original brain dump available.",
       },
     });
 
-    if (parsed) {
-      setResult(parsed);
+    // Handle null/undefined - error is available via generateError from hook
+    if (!parsed) {
+      // The hook already set the error, but we can also set a fallback
+      // The error will display via the `error` computed value (loadError || generateError?.message)
+      return;
+    }
 
-      // Expand first section by default
-      setExpandedSections(new Set([0]));
+    // Handle both response formats:
+    // 1. { outline: {...}, summary: "...", alternative_angles: [...] }
+    // 2. Direct outline object { title: "...", sections: [...], ... }
+    let normalizedResult: OutlineResponse;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawParsed = parsed as any;
+
+    if (rawParsed.outline && rawParsed.outline.title) {
+      // Response has nested outline property
+      normalizedResult = parsed;
+    } else if (rawParsed.title && rawParsed.sections) {
+      // Response IS the outline directly (AI returned outline without wrapper)
+      normalizedResult = {
+        outline: rawParsed as Outline,
+        summary: "",
+        alternative_angles: [],
+      };
+    } else {
+      console.error("Invalid outline response structure:", parsed);
+      setLoadError("Received invalid outline format. Please try again.");
+      return;
+    }
+
+    setResult(normalizedResult);
+
+    // Expand first section by default
+    setExpandedSections(new Set([0]));
+
+    // Save outline and update session status
+    if (sessionId) {
+      const supabase = createClient();
+
+      // Check if outline exists for this session
+      const { data: existingOutline } = await supabase
+        .from("content_outlines")
+        .select("id")
+        .eq("session_id", sessionId)
+        .single();
+
+      let outlineError;
+      if (existingOutline) {
+        // Update existing outline
+        const { error } = await supabase
+          .from("content_outlines")
+          .update({
+            outline_json: normalizedResult.outline,
+            user_feedback: userInput.trim() || null,
+            selected: true,
+          })
+          .eq("session_id", sessionId);
+        outlineError = error;
+      } else {
+        // Insert new outline
+        const { error } = await supabase
+          .from("content_outlines")
+          .insert({
+            session_id: sessionId,
+            outline_json: normalizedResult.outline,
+            user_feedback: userInput.trim() || null,
+            selected: true,
+          });
+        outlineError = error;
+      }
+
+      if (outlineError) {
+        console.error("Failed to save outline:", outlineError);
+      }
 
       // Update session status to 'outline'
-      if (sessionId) {
-        const supabase = createClient();
-        await supabase
-          .from("content_sessions")
-          .update({ status: "outline" })
-          .eq("id", sessionId);
-      }
+      await supabase
+        .from("content_sessions")
+        .update({ status: "outline" })
+        .eq("id", sessionId);
     }
   }, [research, userInput, sessionId, generateJSON]);
 

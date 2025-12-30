@@ -935,3 +935,76 @@ const { research, isLoading, error } = useResearch();
 - Phase 4: Prompt Studio UI
 - Phase 5: Cleanup old Edge Functions
 - Update CHANGELOG.md
+
+---
+
+## [2024-12-29 - Session] Session Persistence & Research Commentary
+
+### What I Attempted
+- Fix session persistence so users can resume sessions with full context
+- Add navigation to go back from Research to Create page
+- Add commentary/notes panel on Research page that flows to Outline
+- Include raw brain dump in research and outline prompts for tone preservation
+- Remove hardcoded model overrides (Rule 1 compliance)
+
+### What Happened
+
+#### Session Persistence Fixes
+- Research page now loads brain dump context from database when resuming session
+- Create page fixed to include `user_selections` in database query
+- Added "Edit Selections" button on Research page header to navigate back to Create
+- All state properly restores: raw content, extracted themes, user selections
+
+#### Research Commentary Feature
+- Added `user_notes` column to `content_research` table
+- Added "Your Commentary" sticky panel alongside research results (2/5 column width)
+- Notes auto-save with 1-second debounce
+- Save status indicator (saving/saved/error) in panel header
+- Notes flow to Outline via sessionStorage and database persistence
+
+#### Prompt Updates
+- Updated `research_generator` prompt to include `{{raw_brain_dump}}`
+- Updated `outline_generator` prompt to include `{{user_research_notes}}` and `{{raw_brain_dump}}`
+- Both prompts now have explicit instructions to preserve user's tone and highlight their annotations
+
+#### Rule 1 Compliance (No Hardcoded Values)
+- Removed hardcoded `perplexity/sonar-pro` override from `useResearch` hook
+- Created migration to set `research_generator` default model to Perplexity in database
+- Model selection is now fully controlled by Prompt Studio
+
+#### AI Call Logs Viewer
+- Created `/studio/logs` page for debugging AI calls
+- Shows all calls with timestamp, prompt slug, model, tokens in/out, duration
+- Click to view full prompt and response
+- Copy buttons for prompt and response
+
+### Files Modified
+- `src/app/(dashboard)/research/page.tsx` - Commentary panel, back navigation, notes state
+- `src/app/(dashboard)/create/page.tsx` - Fixed user_selections in database query
+- `src/app/(dashboard)/outline/page.tsx` - Load notes from DB/sessionStorage, pass to generator
+- `src/app/(dashboard)/studio/logs/page.tsx` - NEW: Logs viewer
+- `src/app/(dashboard)/studio/layout.tsx` - Added Logs tab
+- `src/hooks/use-generate.ts` - Removed hardcoded model override
+
+### Migrations Created
+- `20251229230000_fix_tiktok_prompt.sql` - Fix TikTok variable mismatch
+- `20251230000000_fix_research_prompt.sql` - Add context variables to research prompt
+- `20251230000001_set_research_model_perplexity.sql` - Set default model in DB
+- `20251230000002_add_brain_dump_to_research_prompt.sql` - Include raw brain dump
+- `20251230000003_add_user_notes_to_research.sql` - Add user_notes column
+- `20251230000004_add_notes_to_outline_prompt.sql` - Include notes in outline
+
+### Lessons Learned
+
+1. **Context Must Flow End-to-End**: The user's original voice gets lost when only extracted bullet points are passed. Always include the raw source material.
+
+2. **Database > SessionStorage for Persistence**: SessionStorage is ephemeral (lost on tab close). For true session resume, store everything in the database.
+
+3. **Prompt Studio Should Control Models**: Hardcoded model overrides in hooks violate Rule 1 and prevent Prompt Studio from working correctly. Let the database be the source of truth.
+
+4. **User Commentary is Critical**: Research is only useful if the user can annotate what matters to them. The AI needs to know what resonated.
+
+### Build Status
+- TypeScript: ✓ Passes
+- Build: ✓ Succeeds
+- All migrations: ✓ Applied

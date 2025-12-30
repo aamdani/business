@@ -310,15 +310,36 @@ async function handleStreamingRequest(
 
 /**
  * Convenience hook for text generation with automatic JSON parsing
+ *
+ * Properly propagates errors so calling code can display them to users.
+ * Check `error` from the hook when `generateJSON` returns null.
  */
 export function useGenerateJSON<T>() {
-  const { generate, ...rest } = useGenerate();
+  const { generate, error: generateError, ...rest } = useGenerate();
+  const [jsonError, setJsonError] = useState<Error | null>(null);
+
+  // Combine errors: JSON parsing errors take precedence when present
+  const error = jsonError || generateError;
 
   const generateJSON = useCallback(
     async (options: GenerateOptions): Promise<T | null> => {
+      // Clear previous JSON error
+      setJsonError(null);
+
       const result = await generate(options);
 
-      if (!result?.success || !result.content) {
+      // If generate failed, error is already set in useGenerate state
+      if (!result?.success) {
+        // If there's an error message in the result, make sure it's visible
+        if (result?.error) {
+          setJsonError(new Error(result.error));
+        }
+        return null;
+      }
+
+      // Check for empty content
+      if (!result.content) {
+        setJsonError(new Error("AI returned empty response"));
         return null;
       }
 
@@ -332,23 +353,51 @@ export function useGenerateJSON<T>() {
           jsonStr = jsonMatch[1].trim();
         }
 
-        return JSON.parse(jsonStr) as T;
-      } catch {
-        console.error("Failed to parse JSON from response:", result.content);
+        const parsed = JSON.parse(jsonStr) as T;
+
+        // Check for empty object (AI returned {} which is valid JSON but useless)
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          Object.keys(parsed).length === 0
+        ) {
+          setJsonError(new Error("AI returned empty response. Please try again."));
+          return null;
+        }
+
+        return parsed;
+      } catch (e) {
+        const parseError = new Error(
+          `Failed to parse AI response as JSON. Response started with: "${result.content.slice(0, 100)}..."`
+        );
+        console.error("JSON parse error:", parseError.message);
+        setJsonError(parseError);
         return null;
       }
     },
     [generate]
   );
 
+  // Reset function that clears both errors
+  const reset = useCallback(() => {
+    setJsonError(null);
+    rest.reset();
+  }, [rest]);
+
   return {
     generateJSON,
-    ...rest,
+    error,
+    reset,
+    isLoading: rest.isLoading,
+    result: rest.result,
+    streamedContent: rest.streamedContent,
   };
 }
 
 /**
  * Convenience hook for research with citations
+ * Model is controlled by database (research_generator prompt → perplexity/sonar-pro)
  */
 export function useResearch() {
   const { generate, ...rest } = useGenerate();
@@ -364,10 +413,7 @@ export function useResearch() {
           content: query,
           ...options?.variables,
         },
-        overrides: {
-          model_id: "perplexity/sonar-pro",
-          ...options?.overrides,
-        },
+        overrides: options?.overrides,
       });
 
       if (!result?.success) {

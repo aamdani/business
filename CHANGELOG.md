@@ -5,6 +5,28 @@ All notable changes to Content Master Pro.
 ## [Unreleased]
 
 ### Added
+- **Session Persistence & Research Commentary** - Full context flow through pipeline
+  - Added "Your Commentary" panel on Research page for annotating research
+  - Notes auto-save to database with debounce (1-second delay)
+  - Notes display save status (saving/saved/error)
+  - Commentary flows to Outline page via both sessionStorage and database
+  - Added `user_notes` column to `content_research` table
+  - Research prompt now includes raw brain dump for tone preservation
+  - Outline prompt now includes user research notes and raw brain dump
+  - Full context chain: Brain Dump → Research (with voice) → Commentary → Outline
+
+- **Back Navigation & State Restoration**
+  - Added "Edit Selections" button on Research page to return to Create page
+  - Create page properly restores all state from database (raw content, extracted themes, selections)
+  - Research page loads all context from database when resuming session
+  - Fixed missing `user_selections` in Create page database query
+
+- **AI Call Logs Viewer** - New Studio tab for debugging
+  - Created `/studio/logs` page showing all AI calls
+  - Displays timestamp, prompt slug, model, tokens, duration
+  - Copy prompt and response to clipboard
+  - Full detail dialog for inspecting complete prompts and responses
+
 - **Meta Prompt Assembly System Refactor (Phase 4)** - Prompt Studio UI
   - Created `/studio` with 5 tabs: Templates, Models, Destinations, Guidelines, Test
   - **Templates tab**: Full prompt editor with model selection, temperature/max_tokens, version history, preview with variable interpolation, guideline defaults
@@ -92,3 +114,9 @@ All notable changes to Content Master Pro.
 - `generate-image-prompt` Edge Function now loads guidelines from database instead of hardcoded values
 - Settings page now includes Brand Guidelines section at top
 - Prompts page editor dialog now has tabbed interface with Prompt and Guidelines tabs
+
+### Fixed
+- **TikTok Prompt Mismatch** - Fixed prompt expecting `{{platform}}`, `{{duration}}` but code passing `title`, `num_scripts`
+- **Research Prompt Context** - Research prompt now receives full context (theme descriptions, queries, insights, overall direction) instead of just theme names
+- **Hardcoded Model Override** - Removed hardcoded `perplexity/sonar-pro` override from research hook; model now controlled by Prompt Studio (Rule 1 compliance)
+- **Research Generator Model** - Set `research_generator` default model to Perplexity Sonar Pro in database

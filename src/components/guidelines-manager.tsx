@@ -416,14 +416,14 @@ export function GuidelinesManager({ className = "" }: GuidelinesManagerProps) {
 
       {/* Create Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Add Guideline</DialogTitle>
             <DialogDescription>
               Create a new brand guideline for AI-generated content.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="create-category">Category</Label>
               <Select
@@ -458,7 +458,7 @@ export function GuidelinesManager({ className = "" }: GuidelinesManagerProps) {
                 value={formData.content}
                 onChange={(e) => setFormData((prev) => ({ ...prev, content: e.target.value }))}
                 placeholder="Describe the guideline for the AI to follow..."
-                rows={4}
+                className="min-h-[150px] max-h-[40vh] resize-y"
               />
             </div>
           </div>
@@ -485,14 +485,14 @@ export function GuidelinesManager({ className = "" }: GuidelinesManagerProps) {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingGuideline} onOpenChange={() => closeDialogs()}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit Guideline</DialogTitle>
             <DialogDescription>
               Update this brand guideline.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="edit-name">Name</Label>
               <Input
@@ -507,7 +507,7 @@ export function GuidelinesManager({ className = "" }: GuidelinesManagerProps) {
                 id="edit-content"
                 value={formData.content}
                 onChange={(e) => setFormData((prev) => ({ ...prev, content: e.target.value }))}
-                rows={4}
+                className="min-h-[150px] max-h-[40vh] resize-y"
               />
             </div>
           </div>

@@ -5,25 +5,37 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2,
   Search,
   ExternalLink,
-  Check,
   ArrowRight,
+  ArrowLeft,
   RefreshCw,
-  Lightbulb,
   Quote,
-  BarChart3,
-  HelpCircle,
   X,
   Brain,
+  History,
+  CheckCircle,
+  AlertCircle,
+  Edit,
+  MessageSquare,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useGenerateJSON } from "@/hooks/use-generate";
+import { useGenerate } from "@/hooks/use-generate";
 import ReactMarkdown from "react-markdown";
+
+// Types for past research
+interface PastResearchResult {
+  id: string;
+  score: number;
+  query: string;
+  contentPreview: string;
+  sessionId: string;
+  createdAt: string;
+  wordCount: number;
+}
 
 interface BrainDumpTheme {
   theme: string;
@@ -39,29 +51,6 @@ interface ResearchContext {
   overallDirection: string;
 }
 
-interface ResearchSource {
-  title: string;
-  url: string;
-  snippet: string;
-}
-
-interface ResearchResult {
-  topic: string;
-  summary: string;
-  key_points: string[];
-  sources: ResearchSource[];
-  related_questions: string[];
-  data_points: string[];
-}
-
-interface ResearchResponse {
-  success: boolean;
-  result: ResearchResult;
-  tokens: {
-    input: number;
-    output: number;
-  };
-}
 
 export default function ResearchPage() {
   const searchParams = useSearchParams();
@@ -76,28 +65,42 @@ export default function ResearchPage() {
   const [contextThemes, setContextThemes] = useState<BrainDumpTheme[]>([]);
   const [contextQueries, setContextQueries] = useState<string[]>([]);
   const [contextInsights, setContextInsights] = useState<string[]>([]);
+  const [rawBrainDump, setRawBrainDump] = useState<string | null>(null);
 
   const [theme, setTheme] = useState(initialTheme);
   const [additionalContext, setAdditionalContext] = useState(initialDescription);
-  const [result, setResult] = useState<ResearchResult | null>(null);
-  const [selectedPoints, setSelectedPoints] = useState<Set<string>>(new Set());
-  const [selectedDataPoints, setSelectedDataPoints] = useState<Set<string>>(new Set());
+  const [researchContent, setResearchContent] = useState<string | null>(null);
+  const [citations, setCitations] = useState<string[]>([]);
 
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
 
-  // Use the universal generate hook
-  const { generateJSON, isLoading, error: generateError } = useGenerateJSON<ResearchResult>();
+  // Past research state
+  const [pastResearch, setPastResearch] = useState<PastResearchResult[]>([]);
+  const [isLoadingPastResearch, setIsLoadingPastResearch] = useState(false);
+  const [selectedPastResearch, setSelectedPastResearch] = useState<string | null>(null);
+
+  // Save status
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  // User commentary/notes on research
+  const [userNotes, setUserNotes] = useState<string>("");
+  const [notesSaveStatus, setNotesSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  // Use the universal generate hook (returns markdown, not JSON)
+  const { generate, isLoading, error: generateError } = useGenerate();
   const error = generateError?.message || null;
 
-  // Load existing research from database when session_id present (and not from fresh brain dump)
+  // Load existing research AND brain dump context from database when resuming a session
   useEffect(() => {
-    async function loadExistingResearch() {
+    async function loadExistingSession() {
       if (!sessionId || fromBrainDump) return;
 
       setIsLoadingExisting(true);
       try {
         const supabase = createClient();
-        const { data: existingResearch, error } = await supabase
+
+        // Load existing research
+        const { data: existingResearch, error: researchError } = await supabase
           .from("content_research")
           .select("*")
           .eq("session_id", sessionId)
@@ -105,69 +108,94 @@ export default function ResearchPage() {
           .limit(1)
           .single();
 
-        if (error && error.code !== "PGRST116") {
-          // PGRST116 = no rows found, which is fine
-          console.error("Failed to load existing research:", error);
+        if (researchError && researchError.code !== "PGRST116") {
+          console.error("Failed to load existing research:", researchError);
         }
 
         if (existingResearch) {
           setTheme(existingResearch.query || "");
+          setResearchContent(String(existingResearch.response));
+          setCitations(existingResearch.sources || []);
+          // Load user notes/commentary if saved
+          if (existingResearch.user_notes) {
+            setUserNotes(existingResearch.user_notes);
+          }
+        }
 
-          // Parse the stored research response
-          try {
-            const parsedResult = typeof existingResearch.response === "string"
-              ? JSON.parse(existingResearch.response)
-              : existingResearch.response;
+        // ALSO load brain dump context from database (for session resume)
+        const { data: brainDump, error: brainDumpError } = await supabase
+          .from("content_brain_dumps")
+          .select("raw_content, extracted_themes, user_selections")
+          .eq("session_id", sessionId)
+          .single();
 
-            // If response is structured with our expected fields, use it
-            if (parsedResult && typeof parsedResult === "object") {
-              setResult({
-                topic: existingResearch.query || "",
-                summary: parsedResult.summary || parsedResult.research_summary || String(existingResearch.response),
-                key_points: parsedResult.key_points || [],
-                sources: existingResearch.sources || parsedResult.sources || [],
-                related_questions: parsedResult.related_questions || [],
-                data_points: parsedResult.data_points || [],
-              });
+        if (brainDumpError && brainDumpError.code !== "PGRST116") {
+          console.error("Failed to load brain dump context:", brainDumpError);
+        }
 
-              // Auto-select all loaded points
-              if (parsedResult.key_points) {
-                setSelectedPoints(new Set(parsedResult.key_points));
-              }
-              if (parsedResult.data_points) {
-                setSelectedDataPoints(new Set(parsedResult.data_points));
-              }
-            } else {
-              // Fallback for plain text response
-              setResult({
-                topic: existingResearch.query || "",
-                summary: String(existingResearch.response),
-                key_points: [],
-                sources: existingResearch.sources || [],
-                related_questions: [],
-                data_points: [],
-              });
+        // Store raw brain dump content
+        if (brainDump?.raw_content) {
+          setRawBrainDump(brainDump.raw_content);
+        }
+
+        if (brainDump?.extracted_themes && brainDump?.user_selections) {
+          const extracted = brainDump.extracted_themes as {
+            themes: BrainDumpTheme[];
+            key_insights: string[];
+            suggested_research_queries: string[];
+            overall_direction: string;
+          };
+          const selections = brainDump.user_selections as {
+            selected_theme_indices: number[];
+            selected_query_indices: number[];
+            selected_insight_indices: number[];
+          };
+
+          // Restore selected items based on saved indices
+          const selectedThemes = selections.selected_theme_indices
+            .map((idx) => extracted.themes[idx])
+            .filter(Boolean);
+          const selectedQueries = selections.selected_query_indices
+            .map((idx) => extracted.suggested_research_queries[idx])
+            .filter(Boolean);
+          const selectedInsights = selections.selected_insight_indices
+            .map((idx) => extracted.key_insights[idx])
+            .filter(Boolean);
+
+          // Set context state
+          setContextThemes(selectedThemes);
+          setContextQueries(selectedQueries);
+          setContextInsights(selectedInsights);
+          setBrainDumpContext({
+            themes: selectedThemes,
+            queries: selectedQueries,
+            insights: selectedInsights,
+            overallDirection: extracted.overall_direction,
+          });
+
+          // If no existing research query, build from brain dump
+          if (!existingResearch) {
+            const themeNames = selectedThemes.map((t) => t.theme).join(", ");
+            setTheme(themeNames);
+
+            const contextParts = [];
+            if (extracted.overall_direction) {
+              contextParts.push(`Overall direction: ${extracted.overall_direction}`);
             }
-          } catch {
-            // If parsing fails, treat response as plain text summary
-            setResult({
-              topic: existingResearch.query || "",
-              summary: String(existingResearch.response),
-              key_points: [],
-              sources: existingResearch.sources || [],
-              related_questions: [],
-              data_points: [],
-            });
+            if (selectedInsights.length > 0) {
+              contextParts.push(`Key insights: ${selectedInsights.join("; ")}`);
+            }
+            setAdditionalContext(contextParts.join("\n\n"));
           }
         }
       } catch (err) {
-        console.error("Error loading existing research:", err);
+        console.error("Error loading existing session:", err);
       } finally {
         setIsLoadingExisting(false);
       }
     }
 
-    loadExistingResearch();
+    loadExistingSession();
   }, [sessionId, fromBrainDump]);
 
   // Load brain dump context from sessionStorage
@@ -212,6 +240,41 @@ export default function ResearchPage() {
     }
   }, [fromBrainDump]);
 
+  // Search for related past research when theme changes
+  useEffect(() => {
+    async function searchPastResearch() {
+      // Only search if we have a theme and no existing research is loaded
+      if (!theme.trim() || researchContent) return;
+
+      setIsLoadingPastResearch(true);
+      try {
+        const response = await fetch("/api/research/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            query: theme.trim(),
+            topK: 5,
+            minScore: 0.5,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setPastResearch(data.results || []);
+        }
+      } catch (err) {
+        console.error("Failed to search past research:", err);
+      } finally {
+        setIsLoadingPastResearch(false);
+      }
+    }
+
+    // Debounce the search
+    const timeoutId = setTimeout(searchPastResearch, 500);
+    return () => clearTimeout(timeoutId);
+  }, [theme, researchContent]);
+
   const removeContextTheme = (idx: number) => {
     setContextThemes((prev) => prev.filter((_, i) => i !== idx));
   };
@@ -227,21 +290,42 @@ export default function ResearchPage() {
   const handleResearch = useCallback(async () => {
     if (!theme.trim()) return;
 
-    // Use the universal generate endpoint
-    const parsed = await generateJSON({
+    setSaveStatus("idle");
+
+    // Build rich context from brain dump data
+    const themeDescriptions = contextThemes.length > 0
+      ? contextThemes.map((t) => `**${t.theme}**: ${t.description}`).join("\n\n")
+      : "No detailed theme descriptions available.";
+
+    const researchQueries = contextQueries.length > 0
+      ? contextQueries.map((q, i) => `${i + 1}. ${q}`).join("\n")
+      : "No specific research queries provided.";
+
+    const insightsText = contextInsights.length > 0
+      ? contextInsights.map((ins, i) => `${i + 1}. ${ins}`).join("\n")
+      : "No key insights provided.";
+
+    const overallDirection = brainDumpContext?.overallDirection || "No overall direction specified.";
+
+    // Use the universal generate endpoint (returns markdown)
+    // Model is controlled by database (research_generator → perplexity/sonar-pro)
+    const result = await generate({
       prompt_slug: "research_generator",
       session_id: sessionId || undefined,
       variables: {
         content: theme.trim(),
-        description: additionalContext.trim() || "",
-      },
-      overrides: {
-        model_id: "perplexity/sonar-pro",
+        raw_brain_dump: rawBrainDump || "No original brain dump available.",
+        theme_descriptions: themeDescriptions,
+        research_queries: researchQueries,
+        insights: insightsText,
+        overall_direction: overallDirection,
+        additional_context: additionalContext.trim() || "No additional context provided.",
       },
     });
 
-    if (parsed) {
-      setResult(parsed);
+    if (result?.success && result.content) {
+      setResearchContent(result.content);
+      setCitations(result.citations || []);
 
       // Update session status to 'research'
       if (sessionId) {
@@ -250,39 +334,131 @@ export default function ResearchPage() {
           .from("content_sessions")
           .update({ status: "research" })
           .eq("id", sessionId);
-      }
 
-      // Auto-select all key points and data points
-      setSelectedPoints(new Set(parsed.key_points));
-      setSelectedDataPoints(new Set(parsed.data_points));
+        // Auto-save research to database
+        setSaveStatus("saving");
+        try {
+          const { data: savedResearch, error: insertError } = await supabase
+            .from("content_research")
+            .insert({
+              session_id: sessionId,
+              query: theme.trim(),
+              response: result.content,
+              sources: result.citations || [],
+              pinecone_indexed: false,
+            })
+            .select("id")
+            .single();
+
+          if (insertError) {
+            setSaveStatus("error");
+            console.error("Failed to save research:", insertError);
+          } else {
+            setSaveStatus("saved");
+            // Clear past research since we just did new research
+            setPastResearch([]);
+
+            // Trigger async Pinecone embedding via API (fire and forget)
+            fetch("/api/research/embed", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                research_id: savedResearch.id,
+                query: theme.trim(),
+                response: result.content,
+                session_id: sessionId,
+              }),
+            }).catch((err) => console.error("Pinecone embed error:", err));
+          }
+        } catch (err) {
+          setSaveStatus("error");
+          console.error("Error saving research:", err);
+        }
+      }
     }
-  }, [theme, additionalContext, sessionId, generateJSON]);
+  }, [theme, additionalContext, sessionId, generate, contextThemes, contextQueries, contextInsights, brainDumpContext, rawBrainDump]);
 
-  const togglePoint = (point: string) => {
-    setSelectedPoints((prev) => {
-      const next = new Set(prev);
-      if (next.has(point)) {
-        next.delete(point);
-      } else {
-        next.add(point);
-      }
-      return next;
-    });
-  };
+  // Save user notes to database (debounced auto-save)
+  const saveNotes = useCallback(async (notes: string) => {
+    if (!sessionId) return;
 
-  const toggleDataPoint = (point: string) => {
-    setSelectedDataPoints((prev) => {
-      const next = new Set(prev);
-      if (next.has(point)) {
-        next.delete(point);
+    setNotesSaveStatus("saving");
+    try {
+      const supabase = createClient();
+      const { error: updateError } = await supabase
+        .from("content_research")
+        .update({ user_notes: notes })
+        .eq("session_id", sessionId);
+
+      if (updateError) {
+        console.error("Failed to save notes:", updateError);
+        setNotesSaveStatus("error");
       } else {
-        next.add(point);
+        setNotesSaveStatus("saved");
       }
-      return next;
-    });
-  };
+    } catch (err) {
+      console.error("Error saving notes:", err);
+      setNotesSaveStatus("error");
+    }
+  }, [sessionId]);
+
+  // Debounced note saving
+  useEffect(() => {
+    if (!userNotes || !researchContent) return;
+
+    const timeoutId = setTimeout(() => {
+      saveNotes(userNotes);
+    }, 1000); // Save 1 second after user stops typing
+
+    return () => clearTimeout(timeoutId);
+  }, [userNotes, researchContent, saveNotes]);
+
+  // Load past research content into the page
+  const handleUsePastResearch = useCallback(async (researchId: string) => {
+    setSelectedPastResearch(researchId);
+    setIsLoadingExisting(true);
+
+    try {
+      const supabase = createClient();
+      const { data: research, error } = await supabase
+        .from("content_research")
+        .select("*")
+        .eq("id", researchId)
+        .single();
+
+      if (error) {
+        console.error("Failed to load past research:", error);
+        return;
+      }
+
+      if (research) {
+        setResearchContent(String(research.response));
+        setCitations(research.sources || research.citations || []);
+        setTheme(research.query || theme);
+        // Clear past research suggestions
+        setPastResearch([]);
+      }
+    } catch (err) {
+      console.error("Error loading past research:", err);
+    } finally {
+      setIsLoadingExisting(false);
+      setSelectedPastResearch(null);
+    }
+  }, [theme]);
 
   const handleContinueToOutline = () => {
+    // Store research context for outline page (includes user notes)
+    sessionStorage.setItem(
+      "outline_context",
+      JSON.stringify({
+        research: researchContent,
+        userNotes: userNotes,
+        rawBrainDump: rawBrainDump,
+        theme: theme,
+      })
+    );
+
     // Navigate to outline with session_id
     // The outline page will load research data from the database
     const params = new URLSearchParams();
@@ -307,13 +483,28 @@ export default function ResearchPage() {
       {(contextThemes.length > 0 || contextQueries.length > 0 || contextInsights.length > 0) && (
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Brain className="h-5 w-5" />
-              Selected from Brain Dump
-            </CardTitle>
-            <CardDescription>
-              Remove items you don't want to research, or edit the topic below
-            </CardDescription>
+            <div className="flex items-start justify-between">
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Brain className="h-5 w-5" />
+                  Selected from Brain Dump
+                </CardTitle>
+                <CardDescription>
+                  Remove items you don't want to research, or edit the topic below
+                </CardDescription>
+              </div>
+              {sessionId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/create?session_id=${sessionId}`)}
+                  className="shrink-0"
+                >
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit Selections
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Themes */}
@@ -436,7 +627,7 @@ export default function ResearchPage() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Researching...
                 </>
-              ) : result ? (
+              ) : researchContent ? (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Research Again
@@ -458,186 +649,189 @@ export default function ResearchPage() {
         </CardContent>
       </Card>
 
+      {/* Past Research Suggestions */}
+      {pastResearch.length > 0 && !researchContent && (
+        <Card className="border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Related Past Research
+            </CardTitle>
+            <CardDescription>
+              We found similar research you&apos;ve done before. Use it or start fresh.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pastResearch.map((research) => (
+              <div
+                key={research.id}
+                className="flex items-start justify-between gap-4 p-3 rounded-lg border bg-background hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{research.query}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                    {research.contentPreview}
+                  </p>
+                  <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    <span>{Math.round(research.score * 100)}% match</span>
+                    <span>{research.wordCount} words</span>
+                    <span>{new Date(research.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleUsePastResearch(research.id)}
+                  disabled={selectedPastResearch === research.id}
+                >
+                  {selectedPastResearch === research.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Use This"
+                  )}
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loading Past Research Indicator */}
+      {isLoadingPastResearch && !researchContent && theme.trim() && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Searching for related past research...
+        </div>
+      )}
+
       {/* Research Results */}
-      {result && (
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Main Summary */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Quote className="h-5 w-5" />
-                  Research Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
-                  <ReactMarkdown>{result.summary}</ReactMarkdown>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Key Points */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Lightbulb className="h-5 w-5" />
-                  Key Points
-                </CardTitle>
-                <CardDescription>
-                  Click to select/deselect points to include in your outline
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {result.key_points.map((point, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => togglePoint(point)}
-                      className={`w-full text-left p-3 rounded-lg border transition-colors flex items-start gap-3 ${
-                        selectedPoints.has(point)
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:bg-muted"
-                      }`}
-                    >
-                      <div
-                        className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedPoints.has(point)
-                            ? "border-primary bg-primary"
-                            : "border-muted-foreground"
-                        }`}
-                      >
-                        {selectedPoints.has(point) && (
-                          <Check className="h-3 w-3 text-primary-foreground" />
-                        )}
+      {researchContent && (
+        <div className="space-y-6">
+          {/* Main content row: Research + Notes side by side */}
+          <div className="grid gap-6 lg:grid-cols-5">
+            {/* Research Content - 3 columns */}
+            <div className="lg:col-span-3">
+              <Card className="h-full">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Quote className="h-5 w-5" />
+                      Research Results
+                    </CardTitle>
+                    {/* Save status indicator */}
+                    {saveStatus === "saving" && (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Saving...
                       </div>
-                      <span className="text-sm">{point}</span>
-                    </button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Data Points */}
-            {result.data_points.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5" />
-                    Statistics & Data
-                  </CardTitle>
-                  <CardDescription>
-                    Numbers and facts to strengthen your argument
-                  </CardDescription>
+                    )}
+                    {saveStatus === "saved" && (
+                      <div className="flex items-center gap-1.5 text-xs text-green-600">
+                        <CheckCircle className="h-3 w-3" />
+                        Saved to library
+                      </div>
+                    )}
+                    {saveStatus === "error" && (
+                      <div className="flex items-center gap-1.5 text-xs text-destructive">
+                        <AlertCircle className="h-3 w-3" />
+                        Failed to save
+                      </div>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    {result.data_points.map((point, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => toggleDataPoint(point)}
-                        className={`w-full text-left p-3 rounded-lg border transition-colors flex items-start gap-3 ${
-                          selectedDataPoints.has(point)
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:bg-muted"
-                        }`}
-                      >
-                        <div
-                          className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                            selectedDataPoints.has(point)
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground"
-                          }`}
-                        >
-                          {selectedDataPoints.has(point) && (
-                            <Check className="h-3 w-3 text-primary-foreground" />
-                          )}
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown>{researchContent}</ReactMarkdown>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Notes Panel - 2 columns, sticky */}
+            <div className="lg:col-span-2">
+              <div className="lg:sticky lg:top-4 space-y-4">
+                <Card className="border-primary/20">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5" />
+                        Your Commentary
+                      </CardTitle>
+                      {/* Notes save status */}
+                      {notesSaveStatus === "saving" && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
                         </div>
-                        <span className="text-sm">{point}</span>
-                      </button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                      )}
+                      {notesSaveStatus === "saved" && (
+                        <div className="flex items-center gap-1.5 text-xs text-green-600">
+                          <CheckCircle className="h-3 w-3" />
+                        </div>
+                      )}
+                      {notesSaveStatus === "error" && (
+                        <div className="flex items-center gap-1.5 text-xs text-destructive">
+                          <AlertCircle className="h-3 w-3" />
+                        </div>
+                      )}
+                    </div>
+                    <CardDescription>
+                      Make notes on the research. These will be passed to the outline.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="What stands out to you? What angles do you want to pursue? Any counterarguments or personal takes?
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Sources */}
-            {result.sources.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Sources</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {result.sources.map((source, idx) => (
-                      <a
-                        key={idx}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-sm text-primary hover:underline"
-                      >
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                        <span className="line-clamp-1">{source.title || source.url}</span>
-                      </a>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+Example notes:
+• The stat about 73% adoption is compelling - lead with this
+• I disagree with the expert on X - here's why...
+• This connects to my experience when..."
+                      value={userNotes}
+                      onChange={(e) => setUserNotes(e.target.value)}
+                      className="min-h-[300px] resize-none"
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {userNotes.length} characters • Auto-saves as you type
+                    </p>
+                  </CardContent>
+                </Card>
 
-            {/* Related Questions */}
-            {result.related_questions.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <HelpCircle className="h-4 w-4" />
-                    Related Questions
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {result.related_questions.map((question, idx) => (
-                      <p key={idx} className="text-sm text-muted-foreground">
-                        {question}
-                      </p>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                {/* Citations */}
+                {citations.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg">Sources</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {citations.map((citation, idx) => (
+                          <a
+                            key={idx}
+                            href={citation}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            <span className="line-clamp-1">[{idx + 1}] {citation}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
-            {/* Selection Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Selection</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Key points selected</span>
-                  <Badge variant="secondary">{selectedPoints.size}</Badge>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Data points selected</span>
-                  <Badge variant="secondary">{selectedDataPoints.size}</Badge>
-                </div>
-
-                <Separator />
-
+                {/* Continue Button */}
                 <Button
                   className="w-full"
+                  size="lg"
                   onClick={handleContinueToOutline}
-                  disabled={selectedPoints.size === 0}
                 >
                   Continue to Outline
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -655,7 +849,7 @@ export default function ResearchPage() {
       )}
 
       {/* Empty State */}
-      {!result && !isLoading && !isLoadingExisting && (
+      {!researchContent && !isLoading && !isLoadingExisting && (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Search className="h-12 w-12 text-muted-foreground/50 mb-4" />
