@@ -254,12 +254,12 @@ export default function OutputsPage() {
     if (!draftData) return;
 
     // Use the universal generate endpoint with YouTube destination
+    // Most variables are auto-resolved from database using session_id
     const result = await generateYoutubeJSON({
       prompt_slug: "youtube_script_writer",
       session_id: sessionId || undefined,
       variables: {
-        content: draftData.content,
-        title: draftData.title,
+        // Runtime config parameter
         target_length: "medium",
       },
       overrides: {
@@ -324,12 +324,12 @@ export default function OutputsPage() {
     if (!draftData) return;
 
     // Use the universal generate endpoint with TikTok destination
+    // Most variables are auto-resolved from database using session_id
     const result = await generateTiktokJSON({
       prompt_slug: "tiktok_script_writer",
       session_id: sessionId || undefined,
       variables: {
-        content: draftData.content,
-        title: draftData.title,
+        // Runtime config parameter
         num_scripts: "3",
       },
       overrides: {
@@ -394,12 +394,12 @@ export default function OutputsPage() {
     if (!draftData) return;
 
     // Use the universal generate endpoint
+    // Most variables are auto-resolved from database using session_id
     const result = await generateImagePromptsJSON({
       prompt_slug: "image_prompt_generator",
       session_id: sessionId || undefined,
       variables: {
-        content: draftData.content.substring(0, 1000),
-        title: draftData.title,
+        // Runtime config parameter
         image_type: imageType,
       },
       overrides: {

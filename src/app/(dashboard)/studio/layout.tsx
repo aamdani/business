@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 const tabs = [
-  { href: "/studio/templates", label: "Templates", icon: FileText },
+  { href: "/studio/prompts", label: "Prompts", icon: FileText },
   { href: "/studio/models", label: "Models", icon: Cpu },
   { href: "/studio/destinations", label: "Destinations", icon: Globe },
   { href: "/studio/guidelines", label: "Guidelines", icon: Palette },

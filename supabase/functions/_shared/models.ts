@@ -42,6 +42,7 @@ export interface ModelConfig {
   maxOutputTokens: number | null;
   supportsImages: boolean;
   supportsStreaming: boolean;
+  supportsThinking: boolean;
   isAvailable: boolean;
 
   // Prompting guidance
@@ -93,6 +94,7 @@ export async function loadModelConfig(modelId: string): Promise<ModelConfig> {
     maxOutputTokens: data.max_output_tokens,
     supportsImages: data.supports_images ?? false,
     supportsStreaming: data.supports_streaming ?? true,
+    supportsThinking: data.supports_thinking ?? false,
     isAvailable: data.is_available ?? true,
 
     // Prompting guidance
@@ -148,6 +150,7 @@ export async function loadAvailableModels(
     maxOutputTokens: d.max_output_tokens,
     supportsImages: d.supports_images ?? false,
     supportsStreaming: d.supports_streaming ?? true,
+    supportsThinking: d.supports_thinking ?? false,
     isAvailable: d.is_available ?? true,
     systemPromptTips: d.system_prompt_tips,
     preferredFormat: d.preferred_format,

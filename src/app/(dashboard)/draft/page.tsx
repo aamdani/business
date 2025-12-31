@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useDebouncedCallback } from "use-debounce";
 import { useRouter, useSearchParams } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +22,8 @@ import {
   Copy,
   Download,
   Mic,
+  Eye,
+  Edit3,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useGenerate, useGenerateJSON } from "@/hooks/use-generate";
@@ -68,6 +72,7 @@ export default function DraftPage() {
 
   const [existingDraftLoaded, setExistingDraftLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"edit" | "preview">("edit");
 
   // Use the universal generate hooks
   const {
@@ -165,20 +170,11 @@ export default function DraftPage() {
     setVoiceScore(null);
 
     // Use the universal generate endpoint with streaming
+    // Variables are auto-resolved from database using session_id
     const result = await generateDraft({
       prompt_slug: "draft_writer_substack",
       session_id: sessionId || undefined,
-      variables: {
-        content: JSON.stringify({
-          title: outline.title,
-          subtitle: outline.subtitle,
-          hook: outline.hook,
-          sections: outline.sections,
-          conclusion_approach: outline.conclusion_approach,
-          call_to_action: outline.call_to_action,
-        }),
-        research_summary: outline.research_summary || "",
-      },
+      variables: {},
       stream: true,
     });
 
@@ -245,12 +241,11 @@ export default function DraftPage() {
     if (!draft.trim()) return;
 
     // Use the universal generate endpoint
+    // Variables are auto-resolved from database using session_id
     const result = await checkVoice({
       prompt_slug: "voice_checker",
       session_id: sessionId || undefined,
-      variables: {
-        content: draft,
-      },
+      variables: {},
     });
 
     if (result) {
@@ -456,33 +451,72 @@ export default function DraftPage() {
                   Edit your generated draft or regenerate
                 </CardDescription>
               </div>
-              <Button
-                onClick={handleGenerateDraft}
-                disabled={isGenerating}
-                variant="outline"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Regenerate
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* View Mode Toggle */}
+                <div className="flex items-center rounded-lg border bg-muted p-1">
+                  <Button
+                    variant={viewMode === "edit" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("edit")}
+                    className="h-7 px-2"
+                  >
+                    <Edit3 className="mr-1 h-3 w-3" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant={viewMode === "preview" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("preview")}
+                    className="h-7 px-2"
+                  >
+                    <Eye className="mr-1 h-3 w-3" />
+                    Preview
+                  </Button>
+                </div>
+                <Button
+                  onClick={handleGenerateDraft}
+                  disabled={isGenerating}
+                  variant="outline"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Regenerate
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <Textarea
-                ref={textareaRef}
-                value={displayContent}
-                onChange={handleDraftChange}
-                className="min-h-[500px] font-mono text-sm"
-                placeholder={isGenerating ? "Generating your draft..." : "Your draft will appear here..."}
-                disabled={isGenerating}
-              />
+              {viewMode === "edit" ? (
+                <Textarea
+                  ref={textareaRef}
+                  value={displayContent}
+                  onChange={handleDraftChange}
+                  className="min-h-[500px] font-mono text-sm"
+                  placeholder={isGenerating ? "Generating your draft..." : "Your draft will appear here..."}
+                  disabled={isGenerating}
+                />
+              ) : (
+                <div className="min-h-[500px] rounded-md border bg-background p-4 overflow-auto">
+                  {displayContent ? (
+                    <article className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {displayContent}
+                      </ReactMarkdown>
+                    </article>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      {isGenerating ? "Generating your draft..." : "Your draft will appear here..."}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {displayContent && (
                 <p className="text-sm text-muted-foreground mt-2">

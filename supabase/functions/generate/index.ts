@@ -30,6 +30,7 @@ import { loadActivePromptConfig, interpolateTemplate } from "../_shared/prompts.
 import { loadModelConfig, type ModelConfig, type ImageConfig } from "../_shared/models.ts";
 import { loadDestination, buildDestinationRequirements, getDestinationAspectRatio, type DestinationConfig } from "../_shared/destinations.ts";
 import { buildGuidelineVariables } from "../_shared/guidelines.ts";
+import { resolveVariables } from "../_shared/variables.ts";
 
 // Types
 interface GenerateRequest {
@@ -49,6 +50,7 @@ interface GenerateRequest {
 interface GenerateResponse {
   success: boolean;
   content?: string;
+  reasoning?: string;
   image?: {
     base64: string;
     media_type: string;
@@ -63,6 +65,8 @@ interface GenerateResponse {
     tokens_in?: number;
     tokens_out?: number;
     duration_ms: number;
+    reasoning_enabled?: boolean;
+    reasoning_budget?: number;
   };
   debug?: {
     assembled_system_prompt: string;
@@ -70,6 +74,8 @@ interface GenerateResponse {
     model_config_applied: object;
     destination_config_applied: object | null;
     guidelines_included: string[];
+    resolved_variables: string[];
+    manual_variables: string[];
   };
   error?: string;
 }
@@ -125,16 +131,36 @@ serve(async (req: Request) => {
       overrides?.guideline_overrides
     );
 
-    // 5. Assemble system prompt
+    // 5. Resolve variables found in the prompt template
+    // Variables are determined by what's in the template ({{variable_name}}), not by checkbox selections
+    let resolvedVars: Record<string, string> = {};
+    if (session_id) {
+      try {
+        resolvedVars = await resolveVariables(
+          promptConfig.promptContent,
+          session_id,
+          user.id,
+          variables // Manual variables take precedence
+        );
+      } catch (resolveError) {
+        console.warn("Variable resolution failed, using manual variables:", resolveError);
+      }
+    }
+
+    // 6. Assemble system prompt with all variables
+    // Priority: manual variables > resolved from template > system variables
     const systemPrompt = interpolateTemplate(promptConfig.promptContent, {
-      // Runtime variables from request (e.g., content, research_summary, key_points)
+      // Variables resolved from template placeholders
+      ...resolvedVars,
+
+      // Runtime variables from request (manual override takes precedence)
       ...variables,
 
-      // Model-specific instructions
+      // Model-specific instructions (system-injected)
       model_instructions: modelConfig.systemPromptTips || "",
       model_format: modelConfig.formatInstructions || "",
 
-      // Destination-specific instructions
+      // Destination-specific instructions (system-injected)
       destination_requirements: destinationConfig
         ? buildDestinationRequirements(destinationConfig)
         : "",
@@ -142,14 +168,14 @@ serve(async (req: Request) => {
         ? JSON.stringify(destinationConfig.specs)
         : "",
 
-      // User guidelines
+      // User guidelines (system-injected from brand_guidelines table)
       ...guidelineVars,
     });
 
-    // 6. Build user message from runtime variables
-    const userMessage = buildUserMessage(variables);
+    // 7. Build user message from runtime variables
+    const userMessage = buildUserMessage({ ...resolvedVars, ...variables });
 
-    // 7. Determine API parameters
+    // 8. Determine API parameters
     const temperature =
       overrides?.temperature ??
       promptConfig.apiConfig.temperature ??
@@ -159,7 +185,30 @@ serve(async (req: Request) => {
       promptConfig.apiConfig.max_tokens ??
       modelConfig.defaultMaxTokens;
 
-    // 8. Call AI based on model type
+    // Determine reasoning parameters (only if model supports it)
+    const reasoningEnabled =
+      modelConfig.supportsThinking &&
+      promptConfig.apiConfig.reasoning_enabled === true;
+    const reasoningBudget =
+      reasoningEnabled
+        ? (promptConfig.apiConfig.reasoning_budget ?? 10000)
+        : undefined;
+
+    // Debug logging for API parameters
+    console.log("[generate] API params:", {
+      prompt_slug,
+      model_id: modelId,
+      model_type: modelConfig.modelType,
+      temperature,
+      maxTokens,
+      reasoningEnabled,
+      reasoningBudget,
+      "promptConfig.apiConfig": promptConfig.apiConfig,
+      "modelConfig.defaultMaxTokens": modelConfig.defaultMaxTokens,
+      "modelConfig.supportsThinking": modelConfig.supportsThinking,
+    });
+
+    // 9. Call AI based on model type
     let result: AICallResult;
     switch (modelConfig.modelType) {
       case "text":
@@ -172,6 +221,8 @@ serve(async (req: Request) => {
             maxTokens,
             sessionId: session_id,
             promptSlug: prompt_slug,
+            reasoningEnabled,
+            reasoningBudget,
           });
         }
         result = await callTextModel({
@@ -180,6 +231,8 @@ serve(async (req: Request) => {
           userMessage,
           temperature,
           maxTokens,
+          reasoningEnabled,
+          reasoningBudget,
         });
         break;
 
@@ -211,7 +264,7 @@ serve(async (req: Request) => {
 
     const durationMs = Date.now() - startTime;
 
-    // 9. Log the call
+    // 10. Log the call
     await logAICall({
       sessionId: session_id,
       promptSlug: prompt_slug,
@@ -223,7 +276,7 @@ serve(async (req: Request) => {
       durationMs,
     });
 
-    // 10. Build response
+    // 11. Build response
     const response: GenerateResponse = {
       success: true,
       meta: {
@@ -233,6 +286,8 @@ serve(async (req: Request) => {
         tokens_in: result.tokensIn,
         tokens_out: result.tokensOut,
         duration_ms: durationMs,
+        reasoning_enabled: reasoningEnabled,
+        reasoning_budget: reasoningBudget,
       },
     };
 
@@ -244,6 +299,10 @@ serve(async (req: Request) => {
       response.citations = result.citations;
     } else {
       response.content = result.content;
+      // Include reasoning if present
+      if (result.reasoning) {
+        response.reasoning = result.reasoning;
+      }
     }
 
     // Add debug info if requested
@@ -264,6 +323,8 @@ serve(async (req: Request) => {
             }
           : null,
         guidelines_included: Object.keys(guidelineVars),
+        resolved_variables: Object.keys(resolvedVars),
+        manual_variables: Object.keys(variables || {}),
       };
     }
 
@@ -320,6 +381,7 @@ function buildUserMessage(variables: Record<string, string>): string {
 
 interface AICallResult {
   content?: string;
+  reasoning?: string;
   image?: {
     base64: string;
     media_type: string;
@@ -338,12 +400,36 @@ async function callTextModel(params: {
   userMessage: string;
   temperature: number;
   maxTokens: number;
+  reasoningEnabled?: boolean;
+  reasoningBudget?: number;
 }): Promise<AICallResult> {
-  const { modelId, systemPrompt, userMessage, temperature, maxTokens } = params;
+  const { modelId, systemPrompt, userMessage, temperature, maxTokens, reasoningEnabled, reasoningBudget } = params;
 
   const gatewayApiKey = Deno.env.get("VERCEL_AI_GATEWAY_API_KEY");
   if (!gatewayApiKey) {
     throw new Error("VERCEL_AI_GATEWAY_API_KEY not configured");
+  }
+
+  // Build request body
+  const requestBody: Record<string, unknown> = {
+    model: modelId,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    max_tokens: maxTokens,
+  };
+
+  // Add reasoning (extended thinking) if enabled
+  // Note: When reasoning is enabled, temperature must be omitted (only temp=1 works)
+  if (reasoningEnabled && reasoningBudget && reasoningBudget > 0) {
+    requestBody.reasoning = {
+      enabled: true,
+      budget_tokens: reasoningBudget,
+    };
+    // Don't set temperature when reasoning is enabled
+  } else {
+    requestBody.temperature = temperature;
   }
 
   const response = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", {
@@ -352,15 +438,7 @@ async function callTextModel(params: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${gatewayApiKey}`,
     },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -369,8 +447,11 @@ async function callTextModel(params: {
   }
 
   const data = await response.json();
+  const message = data.choices?.[0]?.message;
+
   return {
-    content: data.choices?.[0]?.message?.content || "",
+    content: message?.content || "",
+    reasoning: message?.reasoning || undefined,
     tokensIn: data.usage?.prompt_tokens,
     tokensOut: data.usage?.completion_tokens,
   };
@@ -387,8 +468,10 @@ async function callTextModelStreaming(params: {
   maxTokens: number;
   sessionId?: string;
   promptSlug: string;
+  reasoningEnabled?: boolean;
+  reasoningBudget?: number;
 }): Promise<Response> {
-  const { modelId, systemPrompt, userMessage, temperature, maxTokens, sessionId, promptSlug } = params;
+  const { modelId, systemPrompt, userMessage, temperature, maxTokens, sessionId, promptSlug, reasoningEnabled, reasoningBudget } = params;
 
   const gatewayApiKey = Deno.env.get("VERCEL_AI_GATEWAY_API_KEY");
   if (!gatewayApiKey) {
@@ -397,22 +480,35 @@ async function callTextModelStreaming(params: {
 
   const startTime = Date.now();
 
+  // Build request body
+  const requestBody: Record<string, unknown> = {
+    model: modelId,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    max_tokens: maxTokens,
+    stream: true,
+  };
+
+  // Add reasoning (extended thinking) if enabled
+  if (reasoningEnabled && reasoningBudget && reasoningBudget > 0) {
+    requestBody.reasoning = {
+      enabled: true,
+      budget_tokens: reasoningBudget,
+    };
+    // Don't set temperature when reasoning is enabled
+  } else {
+    requestBody.temperature = temperature;
+  }
+
   const response = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${gatewayApiKey}`,
     },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-      stream: true,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -423,6 +519,7 @@ async function callTextModelStreaming(params: {
   // Transform the stream
   const encoder = new TextEncoder();
   let fullContent = "";
+  let fullReasoning = "";
 
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
@@ -433,6 +530,10 @@ async function callTextModelStreaming(params: {
         if (line.startsWith("data: ")) {
           const data = line.slice(6);
           if (data === "[DONE]") {
+            // Send reasoning as a separate event before DONE if we captured any
+            if (fullReasoning) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ reasoning: fullReasoning })}\n\n`));
+            }
             // Log the call when done
             const durationMs = Date.now() - startTime;
             await logAICall({
@@ -447,9 +548,22 @@ async function callTextModelStreaming(params: {
           } else {
             try {
               const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content || "";
-              fullContent += content;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
+              const delta = parsed.choices?.[0]?.delta;
+
+              // Handle content delta
+              const content = delta?.content || "";
+              if (content) {
+                fullContent += content;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
+              }
+
+              // Handle reasoning delta (if streaming reasoning is supported)
+              const reasoning = delta?.reasoning || "";
+              if (reasoning) {
+                fullReasoning += reasoning;
+                // Optionally stream reasoning updates (commented out to avoid noise)
+                // controller.enqueue(encoder.encode(`data: ${JSON.stringify({ reasoning_delta: reasoning })}\n\n`));
+              }
             } catch {
               // Skip unparseable chunks
             }

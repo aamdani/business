@@ -25,6 +25,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useGenerate } from "@/hooks/use-generate";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // Types for past research
 interface PastResearchResult {
@@ -309,17 +310,22 @@ export default function ResearchPage() {
 
     // Use the universal generate endpoint (returns markdown)
     // Model is controlled by database (research_generator → perplexity/sonar-pro)
+    // Note: These variables are passed manually because they're filtered by user selections
+    // (auto-resolution would get ALL items, not just selected ones)
     const result = await generate({
       prompt_slug: "research_generator",
       session_id: sessionId || undefined,
       variables: {
-        content: theme.trim(),
-        raw_brain_dump: rawBrainDump || "No original brain dump available.",
-        theme_descriptions: themeDescriptions,
-        research_queries: researchQueries,
-        insights: insightsText,
-        overall_direction: overallDirection,
-        additional_context: additionalContext.trim() || "No additional context provided.",
+        // User's research query/topic
+        research_query_user: theme.trim(),
+        // Brain dump context (filtered by user selections)
+        brain_dump_raw_user: rawBrainDump || "No original brain dump available.",
+        brain_dump_theme_descriptions_ai: themeDescriptions,
+        brain_dump_suggested_queries_ai: researchQueries,
+        brain_dump_key_insights_ai: insightsText,
+        brain_dump_overall_direction_ai: overallDirection,
+        // Runtime user input (must match prompt template variable name)
+        research_additional_context_user: additionalContext.trim() || "No additional context provided.",
       },
     });
 
@@ -345,6 +351,7 @@ export default function ResearchPage() {
               query: theme.trim(),
               response: result.content,
               sources: result.citations || [],
+              additional_context: additionalContext.trim() || null,
               pinecone_indexed: false,
             })
             .select("id")
@@ -740,8 +747,8 @@ export default function ResearchPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown>{researchContent}</ReactMarkdown>
+                  <div className="prose prose-sm dark:prose-invert max-w-none prose-table:border-collapse prose-th:border prose-th:border-border prose-th:bg-muted prose-th:p-2 prose-td:border prose-td:border-border prose-td:p-2">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{researchContent}</ReactMarkdown>
                   </div>
                 </CardContent>
               </Card>

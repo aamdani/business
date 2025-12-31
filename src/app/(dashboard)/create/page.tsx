@@ -228,11 +228,12 @@ export default function CreatePage() {
     }
 
     // Use the universal generate endpoint
+    // Pass brain dump content directly since it's not yet saved to database
     const parsed = await generateJSON({
       prompt_slug: "brain_dump_parser",
       session_id: activeSessionId || undefined,
       variables: {
-        content: content.trim(),
+        brain_dump_raw_user: content.trim(),
       },
     });
 

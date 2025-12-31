@@ -231,17 +231,14 @@ export default function OutlinePage() {
     setLoadError(null);
 
     // Use the universal generate endpoint
+    // Most variables are auto-resolved from database using session_id
+    // Only pass runtime user input that isn't yet saved
     const parsed = await generateJSON({
       prompt_slug: "outline_generator",
       session_id: sessionId || undefined,
       variables: {
-        content: research.theme,
-        research_summary: research.summary || "",
-        key_points: [...research.key_points, ...research.data_points].join("\n"),
-        user_input: userInput.trim() || "",
-        // Include user notes from research and original brain dump
-        user_research_notes: research.userNotes || "No research commentary provided.",
-        raw_brain_dump: research.rawBrainDump || "No original brain dump available.",
+        // Runtime user input (not yet saved to database)
+        outline_preferences_user: userInput.trim() || "No specific preferences provided.",
       },
     });
 

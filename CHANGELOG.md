@@ -5,6 +5,19 @@ All notable changes to Content Master Pro.
 ## [Unreleased]
 
 ### Added
+- **Extended Thinking for Claude Models** - Enable internal reasoning for complex tasks
+  - Added `supports_thinking` column to `ai_models` table
+  - Marked Claude Sonnet 4.5, Opus 4.5, Haiku 4.5, Sonnet 4, Opus 4, Opus 4.1 as thinking-capable
+  - Extended `_shared/models.ts` to include `supportsThinking` in model config
+  - Updated `callTextModel()` and `callTextModelStreaming()` to conditionally add `reasoning` parameter
+  - When reasoning is enabled, temperature is omitted (required by API)
+  - Response includes `reasoning` field with model's thinking process
+  - Prompt Studio editor now shows Extended Thinking controls when a thinking-capable model is selected:
+    - Toggle to enable/disable thinking
+    - Thinking budget selector: 4k (Quick), 8k (Standard), 16k (Deep), 32k (Complex)
+  - Reasoning settings saved to `api_config` in `prompt_versions` table
+  - Model dropdown shows 🧠 indicator for thinking-capable models
+
 - **Session Persistence & Research Commentary** - Full context flow through pipeline
   - Added "Your Commentary" panel on Research page for annotating research
   - Notes auto-save to database with debounce (1-second delay)

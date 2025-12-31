@@ -4,6 +4,80 @@ Detailed narrative of the autonomous build process.
 
 ---
 
+## [2024-12-30 - Session] Extended Thinking for Claude Models
+
+### What I Attempted
+Add support for Claude's Extended Thinking feature, allowing prompts to use internal reasoning for complex tasks like outline and draft generation.
+
+### Research Phase
+- Investigated Claude's Extended Thinking API through Vercel AI Gateway
+- Found that reasoning is enabled via `reasoning: { enabled: true, budget_tokens: N }` in the request
+- Confirmed this works through the OpenAI-compatible endpoint (not just native Anthropic)
+- Created test script to verify feature works before implementing
+
+### Implementation
+
+#### Database Changes
+- Created migration `20251230100000_add_thinking_support.sql`
+- Added `supports_thinking` boolean column to `ai_models` table (default: false)
+- Marked Claude models as thinking-capable: claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5, claude-sonnet-4, claude-opus-4, claude-opus-4-1
+
+#### Edge Function Updates (`supabase/functions/_shared/models.ts`)
+- Added `supportsThinking: boolean` to `ModelConfig` interface
+- Updated `loadModelConfig()` to include `supports_thinking` from database
+- Updated `loadAvailableModels()` to include the field
+
+#### Edge Function Updates (`supabase/functions/generate/index.ts`)
+- Added `reasoning?: string` field to `AICallResult` interface
+- Updated `callTextModel()`:
+  - Added `reasoningEnabled` and `reasoningBudget` parameters
+  - Conditionally adds `reasoning` object to request when enabled
+  - Omits temperature when reasoning is enabled (API requirement)
+  - Extracts reasoning from response (`message.reasoning`)
+- Updated `callTextModelStreaming()`:
+  - Same reasoning parameter support
+  - Accumulates reasoning from stream deltas
+  - Sends reasoning as separate event before DONE
+- Added `reasoning_enabled` and `reasoning_budget` to response meta
+
+#### UI Updates (`src/app/(dashboard)/studio/prompts/[id]/page.tsx`)
+- Extended `PromptVersion` interface with `reasoning_enabled` and `reasoning_budget` in `api_config`
+- Added `supports_thinking` to `AIModel` interface
+- Added state for reasoning settings: `editorReasoningEnabled`, `editorReasoningBudget`
+- Model dropdown shows 🧠 indicator for thinking-capable models
+- Added Extended Thinking control panel:
+  - Toggle switch to enable/disable thinking
+  - Thinking Budget selector with 4 options: 4k (Quick), 8k (Standard), 16k (Deep), 32k (Complex)
+  - Controls only appear when a thinking-capable model is selected
+  - Temperature slider disabled when thinking is enabled (API constraint)
+- Reasoning settings saved/loaded from `api_config` in prompt versions
+
+### Files Modified
+- `supabase/migrations/20251230100000_add_thinking_support.sql` - NEW
+- `supabase/functions/_shared/models.ts` - Added supportsThinking
+- `supabase/functions/generate/index.ts` - Reasoning parameter support
+- `src/app/(dashboard)/studio/prompts/[id]/page.tsx` - UI controls
+
+### Lessons Learned
+
+1. **Temperature Must Be Omitted**: When reasoning is enabled, you cannot set temperature. The API only accepts temp=1 with thinking.
+
+2. **Budget Is Critical**: The `budget_tokens` must be less than `max_tokens`. Recommended ranges:
+   - Quick tasks: 4k tokens
+   - Standard reasoning: 8-16k tokens
+   - Complex tasks (outlines, drafts): 16-32k tokens
+
+3. **Vercel AI Gateway Normalizes**: The `reasoning` object in requests is normalized by the gateway to Anthropic's native `thinking` parameter.
+
+4. **Reasoning Is Returned Separately**: Response includes `choices[0].message.reasoning` with the thinking text, separate from `content`.
+
+### Build Status
+- TypeScript: ✓ Passes
+- Build: ✓ Succeeds
+- Migration: Ready to apply
+
+---
+
 ## [2024-12-27 - Session 1] Phase 1.1: Project Setup
 
 ### What I Attempted
