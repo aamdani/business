@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPineconeClient } from "@/lib/pinecone/client";
+import { openai } from "@ai-sdk/openai";
+import { embedMany } from "ai";
+import { chunkContent, type ChunkMetadata } from "@/lib/chunking";
 
 interface RSSItem {
   title: string;
@@ -20,8 +23,8 @@ interface SyncRequestBody {
   authCookie?: string;
 }
 
-const EMBEDDING_MODEL = "multilingual-e5-large";
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro";
+// Use new index with 3072 dimensions
+const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
 
 /**
  * Parse RSS XML and extract items
@@ -89,26 +92,14 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Generate embeddings for text using Pinecone Inference
+ * Generate embeddings for multiple texts using Vercel AI SDK
  */
-async function generateEmbedding(text: string): Promise<number[]> {
-  const client = getPineconeClient();
-
-  // Truncate text to reasonable length for embedding
-  const truncated = text.slice(0, 8000);
-
-  const embeddings = await client.inference.embed(
-    EMBEDDING_MODEL,
-    [truncated],
-    { inputType: "passage", truncate: "END" }
-  );
-
-  const embedding = embeddings.data[0];
-  if (!("values" in embedding)) {
-    throw new Error("Expected dense embedding with values");
-  }
-
-  return embedding.values;
+async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+  const { embeddings } = await embedMany({
+    model: openai.embedding("text-embedding-3-large"),
+    values: texts,
+  });
+  return embeddings;
 }
 
 export async function POST(request: NextRequest) {
@@ -197,37 +188,55 @@ export async function POST(request: NextRequest) {
     const ns = index.namespace(namespace);
 
     let syncedCount = 0;
+    let chunksUpserted = 0;
     const errors: string[] = [];
 
     for (const item of newItems) {
       try {
         const plainContent = stripHtml(item.content || item.description);
-        const contentPreview = plainContent.slice(0, 500);
+        const publishedDate = item.pubDate ? new Date(item.pubDate) : new Date();
 
-        // Generate embedding
-        const embeddingText = `${item.title}\n\n${plainContent}`;
-        const embedding = await generateEmbedding(embeddingText);
+        // Create chunk metadata
+        const chunkMetadata: ChunkMetadata = {
+          title: item.title,
+          author: item.creator || (source.includes("jon") ? "Jonathan Edwards" : "Nate"),
+          url: item.link,
+          published: publishedDate.toISOString().split("T")[0],
+          source: source.includes("jon") ? "jon_substack" : "nate_substack",
+        };
 
-        // Create unique ID for Pinecone
-        const pineconeId = `${source}-${Buffer.from(item.guid || item.link).toString("base64").slice(0, 20)}`;
+        // Chunk the content
+        const chunks = chunkContent(plainContent, chunkMetadata);
 
-        // Upsert to Pinecone
-        await ns.upsert([
-          {
-            id: pineconeId,
-            values: embedding,
-            metadata: {
-              title: item.title,
-              author: item.creator,
-              source: source,
-              url: item.link,
-              ...(item.pubDate && { published_at: new Date(item.pubDate).toISOString() }),
-              content_preview: contentPreview,
-            },
+        // Generate embeddings for all chunks
+        const chunkTexts = chunks.map((chunk) => chunk.content);
+        const embeddings = await generateEmbeddings(chunkTexts);
+
+        // Create unique base ID for Pinecone
+        const baseId = `${source}-${Buffer.from(item.guid || item.link).toString("base64").slice(0, 20)}`;
+
+        // Upsert all chunks to Pinecone
+        const vectors = chunks.map((chunk, idx) => ({
+          id: `${baseId}-chunk-${chunk.chunkIndex}`,
+          values: embeddings[idx],
+          metadata: {
+            // Full chunk content with YAML frontmatter
+            content: chunk.content,
+            // Flat metadata fields for Pinecone filtering
+            title: item.title,
+            author: chunkMetadata.author,
+            source: chunkMetadata.source,
+            url: item.link,
+            published_at: publishedDate.toISOString(),
+            chunk_index: chunk.chunkIndex,
+            chunk_count: chunk.chunkCount,
           },
-        ]);
+        }));
 
-        // Store in database
+        await ns.upsert(vectors);
+        chunksUpserted += vectors.length;
+
+        // Store in database (store the first chunk's Pinecone ID for reference)
         await supabase.from("imported_posts").insert({
           user_id: user.id,
           source,
@@ -236,12 +245,13 @@ export async function POST(request: NextRequest) {
           title: item.title,
           subtitle: item.description?.slice(0, 200),
           content: item.content || item.description,
-          author: item.creator,
-          published_at: item.pubDate ? new Date(item.pubDate).toISOString() : null,
-          pinecone_id: pineconeId,
+          author: chunkMetadata.author,
+          published_at: publishedDate.toISOString(),
+          pinecone_id: `${baseId}-chunk-0`,
           metadata: {
             enclosure: item.enclosure,
             synced_at: new Date().toISOString(),
+            chunk_count: chunks.length,
           },
         });
 
@@ -272,6 +282,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       synced: syncedCount,
+      chunks: chunksUpserted,
       skipped: items.length - newItems.length,
       total: items.length,
       errors: errors.length,
