@@ -12,19 +12,18 @@ export function getPineconeClient(): Pinecone {
   return pineconeClient;
 }
 
-// Get index with the configured host
-export function getPineconeIndex() {
-  const client = getPineconeClient();
-  const indexName = process.env.PINECONE_INDEX!;
-
-  return client.index(indexName).namespace("content-hub-posts");
+// Get the configured index name
+export function getPineconeIndexName(): string {
+  return process.env.PINECONE_INDEX || "content-master-pro-v2";
 }
 
-// Namespaces used in this project
-export const PINECONE_NAMESPACES = {
-  POSTS: "content-hub-posts",        // Jon's and Nate's posts
-  RESEARCH: "research",              // Perplexity research results
-  BRAIN_DUMPS: "content-hub-brain-dumps", // Processed brain dumps
-} as const;
+// Get index instance
+export function getPineconeIndex() {
+  const client = getPineconeClient();
+  return client.index(getPineconeIndexName());
+}
 
-export type PineconeNamespace = typeof PINECONE_NAMESPACES[keyof typeof PINECONE_NAMESPACES];
+// Get index with a specific namespace
+export function getPineconeNamespace(namespace: string) {
+  return getPineconeIndex().namespace(namespace);
+}

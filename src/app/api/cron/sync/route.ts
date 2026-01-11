@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getPineconeClient } from "@/lib/pinecone/client";
+import { getPineconeClient, getPineconeIndexName } from "@/lib/pinecone/client";
+import { mapSourceToNamespaceSlug } from "@/lib/pinecone/namespaces";
 import { openai } from "@ai-sdk/openai";
 import { embedMany } from "ai";
 import { chunkContent, type ChunkMetadata } from "@/lib/chunking";
@@ -27,9 +28,6 @@ interface RSSItem {
   content: string;
   enclosure?: string;
 }
-
-// Use new index with 3072 dimensions
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
 
 function parseRSSFeed(xml: string): RSSItem[] {
   const items: RSSItem[] = [];
@@ -108,7 +106,7 @@ export async function GET(request: NextRequest) {
   }
 
   const startTime = Date.now();
-  const results: Array<{ source: string; synced: number; chunks: number; errors: number }> = [];
+  const results: Array<{ source: string; synced: number; chunks: number; errors: number; namespace: string }> = [];
 
   try {
     const supabase = await createServiceClient();
@@ -131,7 +129,7 @@ export async function GET(request: NextRequest) {
     }
 
     const pinecone = getPineconeClient();
-    const index = pinecone.index(INDEX_NAME);
+    const index = pinecone.index(getPineconeIndexName());
 
     for (const manifest of manifests) {
       const syncConfig = manifest.sync_config as {
@@ -140,6 +138,9 @@ export async function GET(request: NextRequest) {
       };
 
       if (!syncConfig?.newsletter_url) continue;
+
+      // Determine namespace from source
+      const namespaceSlug = mapSourceToNamespaceSlug(manifest.source);
 
       try {
         // Update status to syncing
@@ -176,13 +177,14 @@ export async function GET(request: NextRequest) {
         const existingIds = new Set(existingPosts?.map((p) => p.external_id) || []);
         const newItems = items.filter((item) => !existingIds.has(item.guid || item.link));
 
-        // Determine namespace
-        const namespace = manifest.source.includes("jon") ? "jon-substack" : "nate-substack";
-        const ns = index.namespace(namespace);
+        // Use namespace slug for Pinecone
+        const ns = index.namespace(namespaceSlug);
 
         let syncedCount = 0;
         let chunksUpserted = 0;
         let errorCount = 0;
+
+        const isJon = manifest.source.toLowerCase().includes("jon");
 
         for (const item of newItems) {
           try {
@@ -192,10 +194,10 @@ export async function GET(request: NextRequest) {
             // Create chunk metadata
             const chunkMetadata: ChunkMetadata = {
               title: item.title,
-              author: item.creator || (manifest.source.includes("jon") ? "Jonathan Edwards" : "Nate"),
+              author: item.creator || (isJon ? "Jonathan Edwards" : "Nate"),
               url: item.link,
               published: publishedDate.toISOString().split("T")[0],
-              source: manifest.source.includes("jon") ? "jon_substack" : "nate_substack",
+              source: isJon ? "jon_substack" : "nate_substack",
             };
 
             // Chunk the content
@@ -245,6 +247,7 @@ export async function GET(request: NextRequest) {
                 enclosure: item.enclosure,
                 synced_at: new Date().toISOString(),
                 chunk_count: chunks.length,
+                namespace: namespaceSlug,
               },
             });
 
@@ -276,6 +279,7 @@ export async function GET(request: NextRequest) {
           synced: syncedCount,
           chunks: chunksUpserted,
           errors: errorCount,
+          namespace: namespaceSlug,
         });
       } catch (err) {
         console.error(`Failed to sync ${manifest.source}:`, err);
@@ -293,6 +297,7 @@ export async function GET(request: NextRequest) {
           synced: 0,
           chunks: 0,
           errors: 1,
+          namespace: namespaceSlug,
         });
       }
     }

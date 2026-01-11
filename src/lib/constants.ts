@@ -50,12 +50,8 @@ export const PROMPT_SLUGS = {
   IMAGE_PROMPT_GENERATOR: "image_prompt_generator",
 } as const;
 
-// Pinecone namespaces
-export const PINECONE_NAMESPACES = {
-  POSTS: "content-hub-posts",
-  RESEARCH: "content-hub-research",
-  BRAIN_DUMPS: "content-hub-brain-dumps",
-} as const;
+// Pinecone namespaces are now database-driven
+// See: src/lib/pinecone/namespaces.ts and pinecone_namespaces table
 
 // API endpoints
 export const API_ROUTES = {

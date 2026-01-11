@@ -1,7 +1,7 @@
-import { getPineconeClient, PINECONE_NAMESPACES } from "./client";
+import { getPineconeClient, getPineconeIndexName } from "./client";
+import { NAMESPACE_SLUGS } from "./namespaces";
 
 const EMBEDDING_MODEL = "multilingual-e5-large";
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
 
 export interface ResearchSearchResult {
   id: string;
@@ -31,8 +31,8 @@ export async function searchResearch(
   const { query, topK = 5, minScore = 0.5 } = options;
 
   const client = getPineconeClient();
-  const index = client.index(INDEX_NAME);
-  const namespace = index.namespace(PINECONE_NAMESPACES.RESEARCH);
+  const index = client.index(getPineconeIndexName());
+  const namespace = index.namespace(NAMESPACE_SLUGS.RESEARCH);
 
   // Generate query embedding using Pinecone Inference API
   const embeddings = await client.inference.embed(

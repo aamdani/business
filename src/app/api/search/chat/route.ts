@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamText } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createClient } from "@/lib/supabase/server";
 import { searchPosts, type SearchResult } from "@/lib/pinecone/search";
 import {
   loadActivePromptConfig,
@@ -23,7 +24,7 @@ interface ChatRequestBody {
     content?: string;
     parts?: Array<{ type: string; text?: string }>;
   }>;
-  sources?: ("jon" | "nate")[];
+  namespaces?: string[];
 }
 
 export async function POST(request: NextRequest) {
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as ChatRequestBody;
-    const { messages, sources = ["jon", "nate"] } = body;
+    const { messages, namespaces } = body;
 
     if (!messages || messages.length === 0) {
       return new Response(JSON.stringify({ error: "Messages are required" }), {
@@ -39,6 +40,8 @@ export async function POST(request: NextRequest) {
         headers: { "Content-Type": "application/json" },
       });
     }
+
+    const supabase = await createClient();
 
     // Load prompt config from database (Rule 2: No hardcoded model IDs)
     const promptConfig = await loadActivePromptConfig("search_chat");
@@ -56,9 +59,9 @@ export async function POST(request: NextRequest) {
     const searchQuery = getTextFromMessage(latestUserMessage);
 
     // Search for relevant posts to use as context
-    const searchResults = await searchPosts({
+    const searchResults = await searchPosts(supabase, {
       query: searchQuery,
-      sources,
+      namespaces,
       topK: 5,
     });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getPineconeClient } from "@/lib/pinecone/client";
+import { getPineconeClient, getPineconeIndexName } from "@/lib/pinecone/client";
+import { getNamespaceBySlug, mapSourceToNamespaceSlug } from "@/lib/pinecone/namespaces";
 import { openai } from "@ai-sdk/openai";
 import { embedMany } from "ai";
 import { chunkContent, type ChunkMetadata } from "@/lib/chunking";
@@ -22,9 +23,6 @@ interface SyncRequestBody {
   feedUrl: string;
   authCookie?: string;
 }
-
-// Use new index with 3072 dimensions
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
 
 /**
  * Parse RSS XML and extract items
@@ -136,6 +134,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Manifest not found" }, { status: 404 });
     }
 
+    // Determine namespace from source
+    const namespaceSlug = mapSourceToNamespaceSlug(source);
+    const namespaceConfig = await getNamespaceBySlug(supabase, namespaceSlug);
+
+    if (!namespaceConfig) {
+      return NextResponse.json(
+        { error: `Namespace not found: ${namespaceSlug}` },
+        { status: 400 }
+      );
+    }
+
     // Fetch RSS feed
     const headers: HeadersInit = {
       "User-Agent": "Mozilla/5.0 (compatible; ContentMasterPro/1.0)",
@@ -181,15 +190,16 @@ export async function POST(request: NextRequest) {
 
     // Process and store new posts
     const pinecone = getPineconeClient();
-    const index = pinecone.index(INDEX_NAME);
+    const index = pinecone.index(getPineconeIndexName());
 
-    // Determine namespace based on source
-    const namespace = source.includes("jon") ? "jon-substack" : "nate-substack";
-    const ns = index.namespace(namespace);
+    // Use the namespace slug from database
+    const ns = index.namespace(namespaceSlug);
 
     let syncedCount = 0;
     let chunksUpserted = 0;
     const errors: string[] = [];
+
+    const isJon = source.toLowerCase().includes("jon");
 
     for (const item of newItems) {
       try {
@@ -199,10 +209,10 @@ export async function POST(request: NextRequest) {
         // Create chunk metadata
         const chunkMetadata: ChunkMetadata = {
           title: item.title,
-          author: item.creator || (source.includes("jon") ? "Jonathan Edwards" : "Nate"),
+          author: item.creator || (isJon ? "Jonathan Edwards" : "Nate"),
           url: item.link,
           published: publishedDate.toISOString().split("T")[0],
-          source: source.includes("jon") ? "jon_substack" : "nate_substack",
+          source: isJon ? "jon_substack" : "nate_substack",
         };
 
         // Chunk the content
@@ -252,6 +262,7 @@ export async function POST(request: NextRequest) {
             enclosure: item.enclosure,
             synced_at: new Date().toISOString(),
             chunk_count: chunks.length,
+            namespace: namespaceSlug,
           },
         });
 
@@ -286,6 +297,7 @@ export async function POST(request: NextRequest) {
       skipped: items.length - newItems.length,
       total: items.length,
       errors: errors.length,
+      namespace: namespaceSlug,
       duration: `${duration}ms`,
     });
   } catch (error) {

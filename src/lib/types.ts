@@ -201,3 +201,39 @@ export interface VoiceGuidelines {
   created_at: string;
   updated_at: string;
 }
+
+// Pinecone Namespace Management
+export type NamespaceSourceType = "newsletter" | "documentation" | "research";
+
+export interface PineconeNamespace {
+  id: string;
+  slug: string;
+  display_name: string;
+  description?: string;
+  source_type?: NamespaceSourceType;
+  is_active: boolean;
+  is_searchable: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PineconeNamespaceInsert {
+  slug: string;
+  display_name: string;
+  description?: string;
+  source_type?: NamespaceSourceType;
+  is_active?: boolean;
+  is_searchable?: boolean;
+  sort_order?: number;
+}
+
+export interface PineconeNamespaceUpdate {
+  slug?: string;
+  display_name?: string;
+  description?: string;
+  source_type?: NamespaceSourceType;
+  is_active?: boolean;
+  is_searchable?: boolean;
+  sort_order?: number;
+}

@@ -9,6 +9,7 @@
  * - Chunks content with ~800 words and 10% overlap
  * - Embeds using text-embedding-3-large (3072 dimensions)
  * - Stores full content with YAML frontmatter in Pinecone metadata
+ * - Uses database-driven namespace configuration
  *
  * Usage:
  *   npx tsx scripts/reindex-all.ts
@@ -34,9 +35,10 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY!;
 const PINECONE_INDEX = process.env.PINECONE_INDEX || "content-master-pro-v2";
 
+// Database-driven namespaces - these should match the pinecone_namespaces table
 const NAMESPACES = {
-  jon: "jon-substack",
-  nate: "nate-substack",
+  jon: "jon",
+  nate: "nate",
 };
 
 const BATCH_SIZE = 20; // Process 20 chunks at a time for embeddings
@@ -93,7 +95,7 @@ function stripHtml(html: string): string {
 
 // Convert post to chunks with metadata
 function postToChunks(post: ImportedPost): ContentChunk[] {
-  const isJon = post.source.includes("jon");
+  const isJon = post.source.toLowerCase().includes("jon");
   const plainContent = stripHtml(post.content || "");
 
   const chunkMetadata: ChunkMetadata = {
@@ -153,7 +155,7 @@ async function reindexAll(source: "jon" | "nate" | "all", dryRun: boolean) {
 
   for (const post of posts) {
     const chunks = postToChunks(post);
-    const isJon = post.source.includes("jon");
+    const isJon = post.source.toLowerCase().includes("jon");
     const baseId = `${isJon ? "jon" : "nate"}_${post.external_id?.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 50)}`;
 
     for (const chunk of chunks) {
@@ -163,6 +165,11 @@ async function reindexAll(source: "jon" | "nate" | "all", dryRun: boolean) {
   }
 
   console.log(`📦 Total chunks to embed: ${allChunks.length}`);
+
+  // Show namespace mapping
+  console.log(`\n📌 Namespace mapping:`);
+  console.log(`   jon → ${NAMESPACES.jon}`);
+  console.log(`   nate → ${NAMESPACES.nate}`);
 
   if (dryRun) {
     console.log("\n🔍 DRY RUN - No changes will be made\n");
@@ -226,7 +233,7 @@ async function reindexAll(source: "jon" | "nate" | "all", dryRun: boolean) {
       const nateVectors: Array<{ id: string; values: number[]; metadata: Record<string, string | number> }> = [];
 
       batch.forEach((item, idx) => {
-        const isJon = item.post.source.includes("jon");
+        const isJon = item.post.source.toLowerCase().includes("jon");
         const vector = {
           id: item.chunkId,
           values: embeddings[idx],

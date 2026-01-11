@@ -200,6 +200,14 @@ All implementation plans must be tracked:
   - `key` - Setting key (e.g., "generate_research_temperature")
   - `value` - JSON value (e.g., `{"value": 0.3}`)
 
+### Vector Database
+- `pinecone_namespaces` - Database-driven Pinecone namespace configuration
+  - `slug` - Namespace identifier in Pinecone (e.g., "jon", "nate", "research")
+  - `display_name` - Human-readable name for UI
+  - `source_type` - Category: "newsletter", "documentation", "research"
+  - `is_active` - Enable/disable namespace
+  - `is_searchable` - Include in search results
+
 ## AI Models (Vercel AI Gateway format)
 
 **API Endpoint:** `https://ai-gateway.vercel.sh/v1/chat/completions` (OpenAI-compatible)
@@ -293,12 +301,13 @@ const systemPrompt = interpolateTemplate(config.prompt_content, {
 ### Semantic Search
 ```typescript
 import { searchPosts } from '@/lib/pinecone/search';
+import { createClient } from '@/lib/supabase/server';
 
-const results = await searchPosts({
+const supabase = await createClient();
+const results = await searchPosts(supabase, {
   query: "AI content creation",
-  namespace: "content-hub-posts",
+  namespaces: ["jon", "nate"], // Optional: defaults to all searchable namespaces
   topK: 10,
-  filter: { author: "jon" }
 });
 ```
 

@@ -1,9 +1,8 @@
 import { openai } from "@ai-sdk/openai";
 import { embed } from "ai";
-import { getPineconeClient, PINECONE_NAMESPACES } from "./client";
+import { getPineconeClient, getPineconeIndexName } from "./client";
+import { NAMESPACE_SLUGS } from "./namespaces";
 
-// Use new index with 3072 dimensions
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
 const MAX_CONTENT_LENGTH = 8000; // Characters to truncate to for embedding
 
 export interface ResearchMetadata {
@@ -43,8 +42,8 @@ export async function embedResearch(
 
   try {
     const client = getPineconeClient();
-    const index = client.index(INDEX_NAME);
-    const namespace = index.namespace(PINECONE_NAMESPACES.RESEARCH);
+    const index = client.index(getPineconeIndexName());
+    const namespace = index.namespace(NAMESPACE_SLUGS.RESEARCH);
 
     // Truncate content for embedding (model has token limits)
     const contentForEmbedding = response.slice(0, MAX_CONTENT_LENGTH);
@@ -99,8 +98,8 @@ export async function deleteResearchEmbedding(researchId: string): Promise<void>
   const vectorId = `research-${researchId}`;
 
   const client = getPineconeClient();
-  const index = client.index(INDEX_NAME);
-  const namespace = index.namespace(PINECONE_NAMESPACES.RESEARCH);
+  const index = client.index(getPineconeIndexName());
+  const namespace = index.namespace(NAMESPACE_SLUGS.RESEARCH);
 
   await namespace.deleteOne(vectorId);
 }

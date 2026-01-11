@@ -8,6 +8,7 @@
  * - Word-based chunking with 10% overlap (~800 words per chunk)
  * - Full chunk content with YAML frontmatter stored in metadata
  * - Uses text-embedding-3-large (3072 dimensions) via Vercel AI SDK
+ * - Database-driven namespace configuration
  *
  * Usage:
  *   npx tsx scripts/import-posts.ts --source jon
@@ -37,9 +38,10 @@ const PATHS = {
   nate: "/Users/jonathanedwards/AUTOMATION/SubStack/nate_substack/Natesnewsletter",
 };
 
+// Database-driven namespaces - these should match the pinecone_namespaces table
 const NAMESPACES = {
-  jon: "jon-substack",
-  nate: "nate-substack",
+  jon: "jon",
+  nate: "nate",
 };
 
 const BATCH_SIZE = 20; // Process 20 chunks at a time for embeddings
@@ -234,6 +236,12 @@ async function importPosts(source: "jon" | "nate" | "all", dryRun: boolean) {
   }
 
   console.log(`📦 Total chunks to embed: ${allChunks.length}`);
+
+  // Show namespace mapping
+  console.log(`\n📌 Namespace mapping:`);
+  for (const src of sources) {
+    console.log(`   ${src} → ${NAMESPACES[src]}`);
+  }
 
   if (dryRun) {
     console.log("\n🔍 DRY RUN - No changes will be made\n");

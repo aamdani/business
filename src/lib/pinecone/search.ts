@@ -1,19 +1,12 @@
 import { openai } from "@ai-sdk/openai";
 import { embed } from "ai";
-import { getPineconeClient } from "./client";
-
-// Namespaces for different sources
-export const SEARCH_NAMESPACES = {
-  JON: "jon-substack",
-  NATE: "nate-substack",
-  ALL: "", // Empty string means search all namespaces
-} as const;
-
-export type SearchNamespace = (typeof SEARCH_NAMESPACES)[keyof typeof SEARCH_NAMESPACES];
+import { SupabaseClient } from "@supabase/supabase-js";
+import { getPineconeClient, getPineconeIndexName } from "./client";
+import { getSearchableNamespaces, getNamespaceBySlug } from "./namespaces";
 
 export interface SearchOptions {
   query: string;
-  sources?: ("jon" | "nate")[];
+  namespaces?: string[]; // Namespace slugs to search (e.g., ["jon", "nate"])
   topK?: number;
   includeMetadata?: boolean;
 }
@@ -31,26 +24,25 @@ export interface SearchResult {
   contentPreview: string; // Legacy field for backward compatibility
   chunkIndex?: number;
   chunkCount?: number;
+  namespace?: string; // The namespace this result came from
 }
 
-// Use new index with 3072 dimensions
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
-
 /**
- * Search for similar content across Jon's and Nate's posts
+ * Search for similar content across configured namespaces
  *
  * Uses Vercel AI SDK with text-embedding-3-large (3072 dimensions)
+ *
+ * @param supabase - Supabase client for loading namespace config
+ * @param options - Search options including query and namespace filters
  */
-export async function searchPosts(options: SearchOptions): Promise<SearchResult[]> {
-  const {
-    query,
-    sources = ["jon", "nate"],
-    topK = 10,
-    includeMetadata = true,
-  } = options;
+export async function searchPosts(
+  supabase: SupabaseClient,
+  options: SearchOptions
+): Promise<SearchResult[]> {
+  const { query, namespaces, topK = 10, includeMetadata = true } = options;
 
   const client = getPineconeClient();
-  const index = client.index(INDEX_NAME);
+  const index = client.index(getPineconeIndexName());
 
   // Generate query embedding using Vercel AI SDK with text-embedding-3-large
   const { embedding: queryVector } = await embed({
@@ -58,12 +50,22 @@ export async function searchPosts(options: SearchOptions): Promise<SearchResult[
     value: query,
   });
 
+  // Determine which namespaces to search
+  let namespacesToSearch: string[];
+
+  if (namespaces && namespaces.length > 0) {
+    // Use provided namespaces
+    namespacesToSearch = namespaces;
+  } else {
+    // Load searchable namespaces from database
+    const searchableNs = await getSearchableNamespaces(supabase);
+    namespacesToSearch = searchableNs.map((ns) => ns.slug);
+  }
+
   // Search in each namespace and combine results
   const allResults: SearchResult[] = [];
 
-  for (const source of sources) {
-    const namespace = source === "jon" ? SEARCH_NAMESPACES.JON : SEARCH_NAMESPACES.NATE;
-
+  for (const namespace of namespacesToSearch) {
     const queryResponse = await index.namespace(namespace).query({
       vector: queryVector,
       topK,
@@ -79,13 +81,18 @@ export async function searchPosts(options: SearchOptions): Promise<SearchResult[
         title: (metadata?.title as string) || "Untitled",
         subtitle: metadata?.subtitle as string,
         author: (metadata?.author as string) || "Unknown",
-        source: (metadata?.source as string) || source,
+        source: (metadata?.source as string) || namespace,
         url: metadata?.url as string,
-        publishedAt: (metadata?.published_at as string) || (metadata?.published as string),
+        publishedAt:
+          (metadata?.published_at as string) || (metadata?.published as string),
         content: (metadata?.content as string) || "",
-        contentPreview: (metadata?.content_preview as string) || (metadata?.content as string)?.slice(0, 500) || "",
+        contentPreview:
+          (metadata?.content_preview as string) ||
+          (metadata?.content as string)?.slice(0, 500) ||
+          "",
         chunkIndex: metadata?.chunk_index as number | undefined,
         chunkCount: metadata?.chunk_count as number | undefined,
+        namespace,
       });
     }
   }
@@ -96,17 +103,25 @@ export async function searchPosts(options: SearchOptions): Promise<SearchResult[
 }
 
 /**
- * Get post by ID
+ * Get post by ID from a specific namespace
  */
 export async function getPostById(
+  supabase: SupabaseClient,
   id: string,
-  namespace: SearchNamespace = SEARCH_NAMESPACES.JON
+  namespace: string
 ): Promise<SearchResult | null> {
-  const client = getPineconeClient();
-  const index = client.index(INDEX_NAME);
-  const ns = index.namespace(namespace);
+  // Validate namespace exists
+  const ns = await getNamespaceBySlug(supabase, namespace);
+  if (!ns) {
+    console.warn(`Namespace not found: ${namespace}`);
+    return null;
+  }
 
-  const result = await ns.fetch([id]);
+  const client = getPineconeClient();
+  const index = client.index(getPineconeIndexName());
+  const nsIndex = index.namespace(namespace);
+
+  const result = await nsIndex.fetch([id]);
   const record = result.records[id];
 
   if (!record) return null;
@@ -121,10 +136,24 @@ export async function getPostById(
     author: (metadata?.author as string) || "Unknown",
     source: (metadata?.source as string) || "",
     url: metadata?.url as string,
-    publishedAt: (metadata?.published_at as string) || (metadata?.published as string),
+    publishedAt:
+      (metadata?.published_at as string) || (metadata?.published as string),
     content: (metadata?.content as string) || "",
-    contentPreview: (metadata?.content_preview as string) || (metadata?.content as string)?.slice(0, 500) || "",
+    contentPreview:
+      (metadata?.content_preview as string) ||
+      (metadata?.content as string)?.slice(0, 500) ||
+      "",
     chunkIndex: metadata?.chunk_index as number | undefined,
     chunkCount: metadata?.chunk_count as number | undefined,
+    namespace,
   };
+}
+
+/**
+ * Legacy function for backward compatibility
+ * Maps old source names to new namespace slugs
+ */
+export function mapSourceToNamespace(source: "jon" | "nate"): string {
+  // Direct mapping - new namespace names match source names
+  return source;
 }

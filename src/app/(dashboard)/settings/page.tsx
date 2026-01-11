@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { GuidelinesManager } from "@/components/guidelines-manager";
+import { NamespaceManager } from "@/components/namespace-manager";
 
 interface AppSetting {
   id: string;
@@ -271,6 +272,9 @@ export default function SettingsPage() {
 
       {/* Brand Guidelines */}
       <GuidelinesManager className="mb-6" />
+
+      {/* Pinecone Namespaces */}
+      <NamespaceManager className="mb-6" />
 
       <div className="space-y-4">
         {Object.entries(settings).map(([category, categorySettings]) => (

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { searchPosts, type SearchResult } from "@/lib/pinecone/search";
 
 export interface SearchRequestBody {
   query: string;
-  sources?: ("jon" | "nate")[];
+  namespaces?: string[];
   topK?: number;
 }
 
@@ -24,9 +25,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const results = await searchPosts({
+    const supabase = await createClient();
+
+    const results = await searchPosts(supabase, {
       query: body.query.trim(),
-      sources: body.sources,
+      namespaces: body.namespaces,
       topK: body.topK || 10,
     });
 
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get("q");
-  const sourcesParam = searchParams.get("sources");
+  const namespacesParam = searchParams.get("namespaces");
   const topK = parseInt(searchParams.get("topK") || "10", 10);
 
   if (!query || query.trim().length === 0) {
@@ -60,18 +63,18 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Parse sources (comma-separated)
-  let sources: ("jon" | "nate")[] | undefined;
-  if (sourcesParam) {
-    sources = sourcesParam.split(",").filter(
-      (s): s is "jon" | "nate" => s === "jon" || s === "nate"
-    );
+  // Parse namespaces (comma-separated)
+  let namespaces: string[] | undefined;
+  if (namespacesParam) {
+    namespaces = namespacesParam.split(",").map((s) => s.trim());
   }
 
   try {
-    const results = await searchPosts({
+    const supabase = await createClient();
+
+    const results = await searchPosts(supabase, {
       query: query.trim(),
-      sources,
+      namespaces,
       topK,
     });
 
