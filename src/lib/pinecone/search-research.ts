@@ -1,7 +1,7 @@
 import { getPineconeClient, PINECONE_NAMESPACES } from "./client";
 
 const EMBEDDING_MODEL = "multilingual-e5-large";
-const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro";
+const INDEX_NAME = process.env.PINECONE_INDEX || "content-master-pro-v2";
 
 export interface ResearchSearchResult {
   id: string;

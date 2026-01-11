@@ -15,11 +15,7 @@ export function getPineconeClient(): Pinecone {
 // Get index with the configured host
 export function getPineconeIndex() {
   const client = getPineconeClient();
-  // Extract index name from host URL
-  // e.g., "https://aicred-context-h9g6rmn.svc.aped-4627-b74a.pinecone.io"
-  // -> "aicred-context"
-  const host = process.env.PINECONE_HOST!;
-  const indexName = host.split("//")[1].split("-")[0] + "-" + host.split("//")[1].split("-")[1];
+  const indexName = process.env.PINECONE_INDEX!;
 
   return client.index(indexName).namespace("content-hub-posts");
 }
