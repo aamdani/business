@@ -5,17 +5,42 @@
  * Uses text-embedding-3-large (3072 dimensions) for high-quality vectors.
  */
 
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
 import { embed as aiEmbed, embedMany as aiEmbedMany } from "ai";
 
-// Create OpenAI-compatible provider pointing to Vercel AI Gateway
-const openaiGateway = createOpenAI({
-  apiKey: process.env.VERCEL_AI_GATEWAY_API_KEY,
-  baseURL: "https://ai-gateway.vercel.sh/v1",
-});
+// Lazy initialization to ensure env vars are loaded
+let _openaiGateway: OpenAIProvider | null = null;
+let _embeddingModel: ReturnType<OpenAIProvider["embedding"]> | null = null;
 
-// Export the embedding model
-export const embeddingModel = openaiGateway.embedding("text-embedding-3-large");
+function getOpenAIGateway(): OpenAIProvider {
+  if (!_openaiGateway) {
+    const apiKey = process.env.VERCEL_AI_GATEWAY_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        "VERCEL_AI_GATEWAY_API_KEY is not set. Please add it to .env.local and restart the server."
+      );
+    }
+    _openaiGateway = createOpenAI({
+      apiKey,
+      baseURL: "https://ai-gateway.vercel.sh/v1",
+    });
+  }
+  return _openaiGateway;
+}
+
+function getEmbeddingModel() {
+  if (!_embeddingModel) {
+    _embeddingModel = getOpenAIGateway().embedding("text-embedding-3-large");
+  }
+  return _embeddingModel;
+}
+
+// Export getter for embedding model (for external use if needed)
+export const embeddingModel = {
+  get instance() {
+    return getEmbeddingModel();
+  },
+};
 
 /**
  * Generate embedding for a single text
@@ -23,7 +48,7 @@ export const embeddingModel = openaiGateway.embedding("text-embedding-3-large");
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const { embedding } = await aiEmbed({
-    model: embeddingModel,
+    model: getEmbeddingModel(),
     value: text,
   });
   return embedding;
@@ -35,7 +60,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const { embeddings } = await aiEmbedMany({
-    model: embeddingModel,
+    model: getEmbeddingModel(),
     values: texts,
   });
   return embeddings;
