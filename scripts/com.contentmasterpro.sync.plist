@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.contentmasterpro.sync</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/jonathanedwards/AUTOMATION/SubStack/content-master-pro/scripts/daily-sync.sh</string>
+    </array>
+    
+    <!-- Run daily at 6:00 AM -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    
+    <!-- Also run on load (useful for testing) -->
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <!-- Standard output and error logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/jonathanedwards/Library/Logs/content-master-pro/launchd-stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/jonathanedwards/Library/Logs/content-master-pro/launchd-stderr.log</string>
+    
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+    
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/jonathanedwards/AUTOMATION/SubStack/content-master-pro</string>
+    
+    <!-- Keep alive if crashed -->
+    <key>KeepAlive</key>
+    <false/>
+    
+    <!-- Timeout (10 minutes should be plenty) -->
+    <key>TimeOut</key>
+    <integer>600</integer>
+</dict>
+</plist>

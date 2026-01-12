@@ -260,6 +260,26 @@ curl -X POST /api/admin/sync-models -H "Authorization: Bearer $TOKEN"
 
 The sync fetches from `https://ai-gateway.vercel.sh/v1/models` and adds any new models to the database.
 
+### Syncing Nate's Newsletter (Full Content)
+
+**See [`CLAUDE-SYNC.md`](./CLAUDE-SYNC.md) for complete sync documentation.**
+
+Quick start:
+```bash
+# 1. Start Chrome with CDP (one-time setup)
+open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir="$HOME/.chrome-substack-profile"
+
+# 2. Log into Substack in that Chrome window
+
+# 3. Run sync
+npx tsx scripts/sync-nate-full.ts
+
+# 4. (Optional) Enable daily automation
+./scripts/manage-sync-schedule.sh install
+```
+
+**Current status:** 239 posts synced → 1,670 vectors in `nate` namespace with 20,000+ links preserved.
+
 ## Key Files
 
 | File | Purpose |
@@ -270,6 +290,9 @@ The sync fetches from `https://ai-gateway.vercel.sh/v1/models` and adds any new 
 | `src/lib/pinecone/client.ts` | Pinecone client |
 | `src/lib/utils.ts` | Utility functions (cn, etc.) |
 | `middleware.ts` | Auth route protection |
+| `scripts/sync-nate-full.ts` | Full content sync for Nate's newsletter |
+| `scripts/daily-sync.sh` | Shell wrapper for daily automated sync |
+| `scripts/manage-sync-schedule.sh` | Install/manage macOS LaunchAgent |
 
 ## Environment Variables
 
