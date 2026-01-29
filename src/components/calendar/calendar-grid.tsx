@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableProjectCard } from "./draggable-project-card";
+import { ProjectCard } from "./project-card";
 import type { ContentProject } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface CalendarGridProps {
   projects: ContentProject[];
@@ -37,21 +40,6 @@ function getMonthDays(date: Date): Date[] {
   return days;
 }
 
-// Get days in current week
-function getWeekDays(date: Date): Date[] {
-  const startOfWeek = new Date(date);
-  startOfWeek.setDate(date.getDate() - date.getDay());
-
-  const days: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const day = new Date(startOfWeek);
-    day.setDate(startOfWeek.getDate() + i);
-    days.push(day);
-  }
-
-  return days;
-}
-
 function formatDateKey(date: Date): string {
   return date.toISOString().split("T")[0];
 }
@@ -70,7 +58,6 @@ function isCurrentMonth(date: Date, currentDate: Date): boolean {
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const WEEKDAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 // Droppable day cell for month view
 interface DroppableDayMonthProps {
@@ -99,7 +86,6 @@ function DroppableDayMonth({ date, projects, inCurrentMonth }: DroppableDayMonth
         isOver && "ring-2 ring-yellow-400 ring-inset bg-yellow-50/80 dark:bg-yellow-950/40"
       )}
     >
-      {/* Day number */}
       <div
         className={cn(
           "text-xs font-medium mb-1.5 px-1",
@@ -113,7 +99,6 @@ function DroppableDayMonth({ date, projects, inCurrentMonth }: DroppableDayMonth
         {date.getDate()}
       </div>
 
-      {/* Projects - with proper overflow handling */}
       <div className="space-y-1 overflow-hidden">
         {projects.slice(0, 3).map((project) => (
           <DraggableProjectCard key={project.id} project={project} variant="compact" />
@@ -128,75 +113,126 @@ function DroppableDayMonth({ date, projects, inCurrentMonth }: DroppableDayMonth
   );
 }
 
-// Droppable day cell for week view - gallery style
-interface DroppableDayWeekProps {
-  date: Date;
+// Gallery carousel for week view
+interface GalleryCarouselProps {
   projects: ContentProject[];
 }
 
-function DroppableDayWeek({ date, projects }: DroppableDayWeekProps) {
-  const dateKey = formatDateKey(date);
-  const { setNodeRef, isOver } = useDroppable({
-    id: dateKey,
-    data: { date: dateKey, type: "calendar-day" },
-  });
+function GalleryCarousel({ projects }: GalleryCarouselProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const cardsPerPage = 3;
 
-  const today = isToday(date);
+  // Sort projects by scheduled_date
+  const sortedProjects = useMemo(() => {
+    return [...projects].sort((a, b) => {
+      if (!a.scheduled_date && !b.scheduled_date) return 0;
+      if (!a.scheduled_date) return 1;
+      if (!b.scheduled_date) return -1;
+      return new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime();
+    });
+  }, [projects]);
+
+  const totalPages = Math.ceil(sortedProjects.length / cardsPerPage);
+  const currentPage = Math.floor(currentIndex / cardsPerPage);
+
+  const canGoBack = currentIndex > 0;
+  const canGoForward = currentIndex + cardsPerPage < sortedProjects.length;
+
+  const goBack = () => {
+    setCurrentIndex(Math.max(0, currentIndex - cardsPerPage));
+  };
+
+  const goForward = () => {
+    setCurrentIndex(Math.min(sortedProjects.length - cardsPerPage, currentIndex + cardsPerPage));
+  };
+
+  const visibleProjects = sortedProjects.slice(currentIndex, currentIndex + cardsPerPage);
+
+  if (sortedProjects.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 text-stone-400 dark:text-stone-600">
+        <p>No content scheduled for this period</p>
+      </div>
+    );
+  }
 
   return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "flex flex-col min-h-100",
-        "bg-white dark:bg-stone-950",
-        "border-r border-stone-200 dark:border-stone-800 last:border-r-0",
-        today && "bg-yellow-50/30 dark:bg-yellow-950/10",
-        isOver && "ring-2 ring-yellow-400 ring-inset bg-yellow-50/60 dark:bg-yellow-950/30"
-      )}
-    >
-      {/* Day header */}
-      <div
+    <div className="relative">
+      {/* Arrow buttons */}
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={goBack}
+        disabled={!canGoBack}
         className={cn(
-          "px-3 py-3 border-b border-stone-100 dark:border-stone-800/50",
-          today && "bg-yellow-100/50 dark:bg-yellow-900/20"
+          "absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 z-10",
+          "h-10 w-10 rounded-full shadow-md",
+          "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700",
+          "hover:bg-yellow-50 hover:border-yellow-300 dark:hover:bg-yellow-950/50",
+          "disabled:opacity-30 disabled:cursor-not-allowed"
         )}
       >
-        <p className="text-[11px] font-medium text-stone-500 dark:text-stone-500 uppercase tracking-wide">
-          {WEEKDAYS_FULL[date.getDay()]}
-        </p>
-        <p
-          className={cn(
-            "text-2xl font-semibold mt-0.5",
-            today
-              ? "text-yellow-700 dark:text-yellow-400"
-              : "text-stone-800 dark:text-stone-200"
-          )}
-        >
-          {date.getDate()}
-        </p>
-      </div>
+        <ChevronLeft className="h-5 w-5" />
+      </Button>
 
-      {/* Projects gallery */}
-      <div className="flex-1 p-3 overflow-y-auto overflow-x-hidden">
-        <div className="space-y-3">
-          {projects.map((project) => (
-            <DraggableProjectCard key={project.id} project={project} variant="full" />
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={goForward}
+        disabled={!canGoForward}
+        className={cn(
+          "absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 z-10",
+          "h-10 w-10 rounded-full shadow-md",
+          "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700",
+          "hover:bg-yellow-50 hover:border-yellow-300 dark:hover:bg-yellow-950/50",
+          "disabled:opacity-30 disabled:cursor-not-allowed"
+        )}
+      >
+        <ChevronRight className="h-5 w-5" />
+      </Button>
+
+      {/* Cards grid */}
+      <div className="px-8">
+        <div className="grid grid-cols-3 gap-5">
+          {visibleProjects.map((project) => (
+            <div key={project.id} className="h-64">
+              <ProjectCard project={project} variant="full" />
+            </div>
           ))}
-          {projects.length === 0 && (
-            <p className="text-xs text-stone-400 dark:text-stone-600 text-center py-8">
-              No content scheduled
-            </p>
-          )}
+          {/* Fill empty slots to maintain grid */}
+          {visibleProjects.length < cardsPerPage &&
+            Array.from({ length: cardsPerPage - visibleProjects.length }).map((_, i) => (
+              <div key={`empty-${i}`} className="h-64" />
+            ))}
         </div>
       </div>
+
+      {/* Page indicators */}
+      {totalPages > 1 && (
+        <div className="flex justify-center gap-2 mt-6">
+          {Array.from({ length: totalPages }).map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentIndex(i * cardsPerPage)}
+              className={cn(
+                "w-2 h-2 rounded-full transition-all duration-200",
+                i === currentPage
+                  ? "bg-yellow-400 w-6"
+                  : "bg-stone-300 dark:bg-stone-700 hover:bg-yellow-300"
+              )}
+              aria-label={`Go to page ${i + 1}`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 export function CalendarGrid({ projects, viewMode, currentDate }: CalendarGridProps) {
   const days = useMemo(() => {
-    return viewMode === "month" ? getMonthDays(currentDate) : getWeekDays(currentDate);
-  }, [viewMode, currentDate]);
+    return getMonthDays(currentDate);
+  }, [currentDate]);
 
   const projectsByDate = useMemo(() => {
     const grouped: Record<string, ContentProject[]> = {};
@@ -214,26 +250,18 @@ export function CalendarGrid({ projects, viewMode, currentDate }: CalendarGridPr
     return grouped;
   }, [projects]);
 
+  // Week view = Gallery carousel
   if (viewMode === "week") {
     return (
-      <div className="border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden shadow-sm">
-        {/* Week grid - gallery layout */}
-        <div className="grid grid-cols-7">
-          {days.map((day, i) => {
-            const dateKey = formatDateKey(day);
-            const dayProjects = projectsByDate[dateKey] || [];
-
-            return <DroppableDayWeek key={i} date={day} projects={dayProjects} />;
-          })}
-        </div>
+      <div className="py-4">
+        <GalleryCarousel projects={projects} />
       </div>
     );
   }
 
-  // Month view
+  // Month view = Traditional calendar grid
   return (
     <div className="border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden shadow-sm">
-      {/* Header */}
       <div className="grid grid-cols-7 border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900">
         {WEEKDAYS.map((day) => (
           <div
@@ -245,7 +273,6 @@ export function CalendarGrid({ projects, viewMode, currentDate }: CalendarGridPr
         ))}
       </div>
 
-      {/* Days grid */}
       <div className="grid grid-cols-7">
         {days.map((day, i) => {
           const dateKey = formatDateKey(day);

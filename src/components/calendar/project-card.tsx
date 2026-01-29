@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ContentProject, ProjectStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// Status configuration with summer yellow accents
+// Status configuration
 const STATUS_CONFIG: Record<
   ProjectStatus,
   { label: string; dotClass: string; textClass: string }
@@ -12,24 +12,35 @@ const STATUS_CONFIG: Record<
   draft: {
     label: "Draft",
     dotClass: "bg-stone-400",
-    textClass: "text-stone-600 dark:text-stone-400",
+    textClass: "text-stone-500 dark:text-stone-500",
   },
   review: {
     label: "Review",
     dotClass: "bg-amber-400",
-    textClass: "text-amber-700 dark:text-amber-400",
+    textClass: "text-amber-600 dark:text-amber-500",
   },
   scheduled: {
     label: "Scheduled",
     dotClass: "bg-yellow-400",
-    textClass: "text-yellow-700 dark:text-yellow-400",
+    textClass: "text-yellow-600 dark:text-yellow-500",
   },
   published: {
     label: "Published",
     dotClass: "bg-emerald-400",
-    textClass: "text-emerald-700 dark:text-emerald-400",
+    textClass: "text-emerald-600 dark:text-emerald-500",
   },
 };
+
+// Format date for display
+function formatDate(dateString: string | null): string {
+  if (!dateString) return "Unscheduled";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 // Extract first N words from text
 function truncateWords(text: string | null | undefined, wordCount: number): string {
@@ -49,7 +60,7 @@ export function ProjectCard({ project, variant = "compact" }: ProjectCardProps) 
   const summary = truncateWords(project.notes, 50);
 
   if (variant === "compact") {
-    // Compact card for month view - just title and status dot
+    // Compact card for month view
     return (
       <Link
         href={`/projects/${project.id}`}
@@ -75,42 +86,48 @@ export function ProjectCard({ project, variant = "compact" }: ProjectCardProps) 
     );
   }
 
-  // Full card for week view - magazine editorial style
+  // Full card for gallery view - magazine editorial style
   return (
     <Link
       href={`/projects/${project.id}`}
       className={cn(
-        "block rounded-xl transition-all duration-200",
+        "flex flex-col h-full rounded-xl transition-all duration-200",
         "bg-linear-to-br from-amber-50 to-yellow-50/50",
         "dark:from-amber-950/40 dark:to-yellow-950/20",
         "border border-amber-200/60 dark:border-amber-800/40",
-        "hover:shadow-md hover:shadow-amber-200/40 dark:hover:shadow-amber-900/30",
+        "hover:shadow-lg hover:shadow-amber-200/50 dark:hover:shadow-amber-900/40",
         "hover:border-yellow-300 dark:hover:border-yellow-700",
-        "p-4 overflow-hidden"
+        "hover:-translate-y-0.5",
+        "p-5 overflow-hidden"
       )}
     >
-      {/* Status indicator - subtle top accent */}
-      <div className="flex items-center gap-1.5 mb-2">
-        <span
-          className={cn("w-2 h-2 rounded-full", statusConfig.dotClass)}
-          aria-label={statusConfig.label}
-        />
-        <span className={cn("text-[11px] font-medium uppercase tracking-wide", statusConfig.textClass)}>
-          {statusConfig.label}
-        </span>
-      </div>
+      {/* Date at top */}
+      <p className="text-xs font-medium text-yellow-700 dark:text-yellow-500 uppercase tracking-wide mb-3">
+        {formatDate(project.scheduled_date)}
+      </p>
 
-      {/* Title - editorial headline style */}
+      {/* Title */}
       <h3 className="font-semibold text-stone-900 dark:text-stone-100 leading-snug mb-2 line-clamp-2">
         {project.title}
       </h3>
 
-      {/* Summary - magazine body text */}
-      {summary && (
-        <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed line-clamp-3">
+      {/* Summary */}
+      {summary ? (
+        <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed line-clamp-3 flex-1">
           {summary}
         </p>
+      ) : (
+        <p className="text-sm text-stone-400 dark:text-stone-600 italic flex-1">
+          No description yet
+        </p>
       )}
+
+      {/* Status at bottom - very small */}
+      <div className="mt-4 pt-3 border-t border-amber-200/40 dark:border-amber-800/30">
+        <span className={cn("text-[10px] font-medium uppercase tracking-wider", statusConfig.textClass)}>
+          {statusConfig.label}
+        </span>
+      </div>
     </Link>
   );
 }
