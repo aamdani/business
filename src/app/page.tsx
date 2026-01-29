@@ -11,7 +11,7 @@ export default async function Home() {
   } = await supabase.auth.getUser();
 
   if (user) {
-    redirect("/dashboard");
+    redirect("/calendar");
   }
 
   return (
@@ -24,7 +24,7 @@ export default async function Home() {
           fuck off
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">
-          This isn't for you
+          This isn&apos;t for you
         </p>
         <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:justify-center">
           <Button asChild size="lg">

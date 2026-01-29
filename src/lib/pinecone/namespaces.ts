@@ -26,6 +26,7 @@ export const NAMESPACE_SLUGS = {
   NATE: "nate",
   RESEARCH: "research",
   OFFICIAL_DOCS: "official-docs",
+  IDEAS: "ideas",
 } as const;
 
 /**

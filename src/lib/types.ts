@@ -203,7 +203,7 @@ export interface VoiceGuidelines {
 }
 
 // Pinecone Namespace Management
-export type NamespaceSourceType = "newsletter" | "documentation" | "research";
+export type NamespaceSourceType = "newsletter" | "documentation" | "research" | "ideas";
 
 export interface PineconeNamespace {
   id: string;
@@ -424,4 +424,367 @@ export interface PartnerNamespaceResponse {
   source_type?: NamespaceSourceType;
   can_read: boolean;
   can_write: boolean;
+}
+
+// ============================================================================
+// Ideas Capture Types
+// ============================================================================
+
+// Idea source types
+export type IdeaSourceType =
+  | "slack"
+  | "recording"
+  | "manual"
+  | "x_share"
+  | "granola"
+  | "substack";
+
+// Idea type classification
+export type IdeaType =
+  | "observation"
+  | "question"
+  | "concept"
+  | "reference"
+  | "todo";
+
+// Idea status in the pipeline
+export type IdeaStatus = "backlog" | "in_progress" | "drafted" | "archived";
+
+// Idea Cluster - semantic grouping of related ideas
+export interface IdeaCluster {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  representative_embedding?: string;
+  is_active: boolean;
+  idea_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdeaClusterInsert {
+  user_id: string;
+  name: string;
+  description?: string;
+  representative_embedding?: string;
+  is_active?: boolean;
+  idea_count?: number;
+}
+
+export interface IdeaClusterUpdate {
+  name?: string;
+  description?: string;
+  representative_embedding?: string;
+  is_active?: boolean;
+  idea_count?: number;
+}
+
+// Slack Idea - captured idea from any source
+export interface SlackIdea {
+  id: string;
+  user_id: string;
+  raw_content: string;
+  source_type: IdeaSourceType;
+  source_url?: string;
+
+  // Slack-specific
+  slack_message_id?: string;
+  slack_channel_id?: string;
+  slack_timestamp?: string;
+  slack_user_id?: string;
+
+  // Recording linkage
+  recording_id?: string;
+
+  // AI-generated
+  summary?: string;
+  extracted_topics: string[];
+  idea_type?: IdeaType;
+  potential_angles: string[];
+  embedding_id?: string;
+
+  // Clustering
+  cluster_id?: string;
+  cluster_confidence?: number;
+  cluster?: IdeaCluster;
+
+  // Status
+  status: IdeaStatus;
+  content_session_id?: string;
+
+  // Pinecone indexing
+  pinecone_indexed: boolean;
+  pinecone_indexed_at?: string;
+  pinecone_error?: string;
+
+  // Timestamps
+  captured_at: string;
+  processed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SlackIdeaInsert {
+  user_id: string;
+  raw_content: string;
+  source_type: IdeaSourceType;
+  source_url?: string;
+  slack_message_id?: string;
+  slack_channel_id?: string;
+  slack_timestamp?: string;
+  slack_user_id?: string;
+  recording_id?: string;
+  status?: IdeaStatus;
+  captured_at?: string;
+}
+
+export interface SlackIdeaUpdate {
+  raw_content?: string;
+  summary?: string;
+  extracted_topics?: string[];
+  idea_type?: IdeaType;
+  potential_angles?: string[];
+  embedding_id?: string;
+  cluster_id?: string;
+  cluster_confidence?: number;
+  status?: IdeaStatus;
+  content_session_id?: string;
+  pinecone_indexed?: boolean;
+  pinecone_indexed_at?: string;
+  pinecone_error?: string;
+  processed_at?: string;
+}
+
+// AI Processing result for ideas
+export interface IdeaSummaryResult {
+  summary: string;
+  topics: string[];
+  type: IdeaType;
+  potential_angles: string[];
+}
+
+// Cluster naming result
+export interface ClusterNameResult {
+  name: string;
+  description: string;
+}
+
+// Slack Integration Config
+export type SlackSyncStatus = "idle" | "syncing" | "error";
+
+export interface SlackIntegrationConfig {
+  id: string;
+  user_id: string;
+  access_token: string;
+  refresh_token?: string;
+  token_expires_at?: string;
+  bot_user_id?: string;
+  team_id: string;
+  team_name?: string;
+  channel_id: string;
+  channel_name: string;
+  last_sync_at?: string;
+  last_message_ts?: string;
+  sync_status: SlackSyncStatus;
+  sync_error?: string;
+  messages_synced: number;
+  is_active: boolean;
+  sync_frequency_minutes: number;
+  auto_process: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SlackIntegrationConfigInsert {
+  user_id: string;
+  access_token: string;
+  refresh_token?: string;
+  token_expires_at?: string;
+  bot_user_id?: string;
+  team_id: string;
+  team_name?: string;
+  channel_id: string;
+  channel_name?: string;
+  is_active?: boolean;
+  sync_frequency_minutes?: number;
+  auto_process?: boolean;
+}
+
+export interface SlackIntegrationConfigUpdate {
+  access_token?: string;
+  refresh_token?: string;
+  token_expires_at?: string;
+  channel_id?: string;
+  channel_name?: string;
+  last_sync_at?: string;
+  last_message_ts?: string;
+  sync_status?: SlackSyncStatus;
+  sync_error?: string;
+  messages_synced?: number;
+  is_active?: boolean;
+  sync_frequency_minutes?: number;
+  auto_process?: boolean;
+}
+
+// Idea vector metadata for Pinecone
+export interface IdeaVectorMetadata {
+  idea_id: string;
+  user_id: string;
+  summary: string;
+  topics: string[];
+  source_type: IdeaSourceType;
+  cluster_id?: string;
+  created_at: string;
+  content_preview: string;
+  [key: string]: string | string[] | undefined; // Index signature for Pinecone
+}
+
+// ============================================================================
+// Content Calendar & Project Management Types
+// ============================================================================
+
+// Project status workflow
+export type ProjectStatus = "draft" | "review" | "scheduled" | "published";
+
+// Asset status
+export type AssetStatus = "draft" | "ready" | "final";
+
+// Asset type classification
+export type AssetType =
+  | "post"
+  | "transcript_youtube"
+  | "transcript_tiktok"
+  | "description_youtube"
+  | "description_tiktok"
+  | "prompts"
+  | "guide"
+  | "post_linkedin"
+  | "post_substack"
+  | "image_substack";
+
+// Content Project - main project entity
+export interface ContentProject {
+  id: string;
+  project_id: string; // yyyymmdd_xxx format
+  title: string;
+  scheduled_date: string | null;
+  status: ProjectStatus;
+  target_platforms: string[];
+  notes: string | null;
+  video_runtime: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContentProjectInsert {
+  project_id: string;
+  title: string;
+  scheduled_date?: string | null;
+  status?: ProjectStatus;
+  target_platforms?: string[];
+  notes?: string | null;
+  video_runtime?: string | null;
+  created_by: string;
+}
+
+export interface ContentProjectUpdate {
+  project_id?: string;
+  title?: string;
+  scheduled_date?: string | null;
+  status?: ProjectStatus;
+  target_platforms?: string[];
+  notes?: string | null;
+  video_runtime?: string | null;
+}
+
+// Project Asset - individual content pieces within a project
+export interface ProjectAsset {
+  id: string;
+  project_id: string;
+  asset_type: AssetType | string;
+  title: string | null;
+  content: string | null;
+  current_version: number;
+  status: AssetStatus;
+  external_url: string | null;
+  locked_by: string | null;
+  locked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectAssetInsert {
+  project_id: string;
+  asset_type: AssetType | string;
+  title?: string | null;
+  content?: string | null;
+  status?: AssetStatus;
+  external_url?: string | null;
+}
+
+export interface ProjectAssetUpdate {
+  asset_type?: AssetType | string;
+  title?: string | null;
+  content?: string | null;
+  current_version?: number;
+  status?: AssetStatus;
+  external_url?: string | null;
+  locked_by?: string | null;
+  locked_at?: string | null;
+}
+
+// Asset Version - version history for assets
+export interface AssetVersion {
+  id: string;
+  asset_id: string;
+  version_number: number;
+  content: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface AssetVersionInsert {
+  asset_id: string;
+  version_number: number;
+  content: string;
+  created_by: string;
+}
+
+// Project Publication - track where/when content was published
+export interface ProjectPublication {
+  id: string;
+  project_id: string;
+  destination_id: string | null;
+  platform: string;
+  published_at: string;
+  published_url: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ProjectPublicationInsert {
+  project_id: string;
+  destination_id?: string | null;
+  platform: string;
+  published_at: string;
+  published_url?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProjectPublicationUpdate {
+  destination_id?: string | null;
+  platform?: string;
+  published_at?: string;
+  published_url?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+// Lock status for edit locking
+export interface LockStatus {
+  isLocked: boolean;
+  lockedBy: string | null;
+  lockedAt: string | null;
+  isLockedByCurrentUser: boolean;
 }

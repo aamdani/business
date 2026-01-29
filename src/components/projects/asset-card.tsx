@@ -1,0 +1,161 @@
+"use client";
+
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import type { ProjectAsset, AssetStatus } from "@/lib/types";
+import {
+  FileText,
+  Video,
+  Image,
+  FileCode,
+  Lock,
+  Edit,
+  ExternalLink,
+} from "lucide-react";
+
+// Asset type icons
+const ASSET_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  post: FileText,
+  transcript_youtube: Video,
+  transcript_tiktok: Video,
+  description_youtube: FileText,
+  description_tiktok: FileText,
+  prompts: FileCode,
+  guide: FileText,
+  post_linkedin: FileText,
+  post_substack: FileText,
+  image_substack: Image,
+};
+
+// Asset type labels
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  post: "Main Post",
+  transcript_youtube: "YouTube Transcript",
+  transcript_tiktok: "TikTok Transcript",
+  description_youtube: "YouTube Description",
+  description_tiktok: "TikTok Description",
+  prompts: "Prompt Kit",
+  guide: "Guide",
+  post_linkedin: "LinkedIn Post",
+  post_substack: "Substack Post",
+  image_substack: "Substack Image",
+};
+
+// Status configuration
+const STATUS_CONFIG: Record<AssetStatus, { label: string; bgClass: string }> = {
+  draft: {
+    label: "Draft",
+    bgClass: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+  },
+  ready: {
+    label: "Ready",
+    bgClass: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  },
+  final: {
+    label: "Final",
+    bgClass: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  },
+};
+
+interface AssetCardProps {
+  asset: ProjectAsset;
+  projectId: string;
+  currentUserId?: string;
+}
+
+export function AssetCard({ asset, projectId, currentUserId }: AssetCardProps) {
+  const Icon = ASSET_TYPE_ICONS[asset.asset_type] || FileText;
+  const typeLabel = ASSET_TYPE_LABELS[asset.asset_type] || asset.asset_type;
+  const statusConfig = STATUS_CONFIG[asset.status];
+
+  const isLocked = !!asset.locked_by;
+  const isLockedByMe = asset.locked_by === currentUserId;
+
+  // Calculate lock staleness - locks older than 30 minutes are considered stale
+  const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+  const isLockStale = asset.locked_at
+    ? new Date().getTime() - new Date(asset.locked_at).getTime() > LOCK_TIMEOUT_MS
+    : false;
+
+  return (
+    <Card className="border-border hover:border-primary/50 transition-colors">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-muted">
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-medium text-sm text-foreground">
+                {asset.title || typeLabel}
+              </p>
+              <p className="text-xs text-muted-foreground">{typeLabel}</p>
+            </div>
+          </div>
+          <Badge variant="secondary" className={statusConfig.bgClass}>
+            {statusConfig.label}
+          </Badge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-0">
+        {/* Lock indicator */}
+        {isLocked && !isLockStale && (
+          <div
+            className={`flex items-center gap-1 text-xs mb-2 ${
+              isLockedByMe
+                ? "text-green-600 dark:text-green-400"
+                : "text-amber-600 dark:text-amber-400"
+            }`}
+          >
+            <Lock className="h-3 w-3" />
+            <span>
+              {isLockedByMe
+                ? "You are editing"
+                : `Locked by another user`}
+            </span>
+          </div>
+        )}
+
+        {/* Content preview */}
+        {asset.content && (
+          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+            {asset.content.slice(0, 150)}
+            {asset.content.length > 150 ? "..." : ""}
+          </p>
+        )}
+
+        {/* Version info */}
+        <p className="text-xs text-muted-foreground mb-3">
+          Version {asset.current_version}
+        </p>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm" variant="outline" className="flex-1">
+            <Link href={`/projects/${projectId}/assets/${asset.id}`}>
+              <Edit className="h-3 w-3 mr-1" />
+              Edit
+            </Link>
+          </Button>
+
+          {asset.external_url && (
+            <Button asChild size="sm" variant="ghost">
+              <a
+                href={asset.external_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export { STATUS_CONFIG as ASSET_STATUS_CONFIG, ASSET_TYPE_LABELS };

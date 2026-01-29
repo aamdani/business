@@ -22,6 +22,10 @@ export default function SignupPage() {
     e.preventDefault();
     setError(null);
 
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/ea8c74f9-e59d-42b1-847c-9b92e8afc606',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'signup/page.tsx:handleSubmit',message:'Form submitted - raw email value',data:{email:email,emailLength:email.length,emailCharCodes:Array.from(email).map(c=>c.charCodeAt(0)),emailTrimmed:email.trim(),trimmedLength:email.trim().length,hasLeadingSpace:email.startsWith(' ')||email.startsWith('\t'),hasTrailingSpace:email.endsWith(' ')||email.endsWith('\t')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+    // #endregion
+
     if (password !== confirmPassword) {
       setError("Passwords do not match");
       return;
@@ -36,6 +40,9 @@ export default function SignupPage() {
 
     try {
       const supabase = createClient();
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/ea8c74f9-e59d-42b1-847c-9b92e8afc606',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'signup/page.tsx:beforeSignUp',message:'About to call Supabase signUp',data:{emailBeingSent:email,emailRegexMatch:/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,D,E'})}).catch(()=>{});
+      // #endregion
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -45,12 +52,21 @@ export default function SignupPage() {
       });
 
       if (error) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/ea8c74f9-e59d-42b1-847c-9b92e8afc606',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'signup/page.tsx:signUpError',message:'Supabase signUp returned error',data:{errorMessage:error.message,errorName:error.name,errorCode:(error as unknown as Record<string,unknown>).code,errorStatus:(error as unknown as Record<string,unknown>).status,fullError:JSON.stringify(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         setError(error.message);
         return;
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/ea8c74f9-e59d-42b1-847c-9b92e8afc606',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'signup/page.tsx:signUpSuccess',message:'Supabase signUp succeeded',data:{email:email},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'SUCCESS'})}).catch(()=>{});
+      // #endregion
       setSuccess(true);
     } catch {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/ea8c74f9-e59d-42b1-847c-9b92e8afc606',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'signup/page.tsx:catchError',message:'Unexpected error in signup',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'UNEXPECTED'})}).catch(()=>{});
+      // #endregion
       setError("An unexpected error occurred");
     } finally {
       setLoading(false);
@@ -94,7 +110,13 @@ export default function SignupPage() {
               type="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                const newVal = e.target.value;
+                // #region agent log
+                if (newVal.length > 5 && newVal.includes('@')) { fetch('http://127.0.0.1:7243/ingest/ea8c74f9-e59d-42b1-847c-9b92e8afc606',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'signup/page.tsx:emailOnChange',message:'Email input changed',data:{value:newVal,length:newVal.length,charCodes:Array.from(newVal).map(c=>c.charCodeAt(0))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{}); }
+                // #endregion
+                setEmail(newVal);
+              }}
               required
               className="bg-background text-foreground placeholder:text-muted-foreground"
             />

@@ -57,3 +57,7 @@ next-env.d.ts
 
 # Placeholder files
 /public/ICONS_NEEDED.txt
+
+# Local working directories
+/.ralph/
+/SCRAPBOOK/

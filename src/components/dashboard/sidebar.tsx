@@ -21,9 +21,11 @@ import {
   BookOpen,
   Newspaper,
   Bookmark,
+  Calendar,
 } from "lucide-react";
 
 const navigation = [
+  { name: "Calendar", href: "/calendar", icon: Calendar },
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Create", href: "/create", icon: Brain },
   { name: "News Feed", href: "/swipe", icon: Newspaper },
@@ -113,7 +115,7 @@ export function Sidebar() {
   return (
     <aside className="flex h-screen w-64 flex-col border-r border-border bg-background">
       <div className="flex h-16 items-center border-b border-border px-6">
-        <Link href="/dashboard" className="flex items-center gap-2">
+        <Link href="/calendar" className="flex items-center gap-2">
           <Brain className="h-6 w-6 text-primary" />
           <span className="font-semibold text-foreground">Content Master</span>
         </Link>
