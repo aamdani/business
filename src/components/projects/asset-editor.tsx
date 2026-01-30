@@ -14,6 +14,7 @@ import {
   useRefreshLock,
 } from "@/hooks/use-assets";
 import { useCreateVersion } from "@/hooks/use-asset-versions";
+import { createMarkdownPasteHandler } from "@/hooks/use-markdown-paste";
 import { Save, Loader2, Check, AlertCircle, Eye, Code, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -380,6 +381,7 @@ function AssetEditorInner({
                 <Textarea
                   value={content}
                   onChange={(e) => handleContentChange(e.target.value)}
+                  onPaste={createMarkdownPasteHandler(content, handleContentChange)}
                   disabled={!canEdit}
                   placeholder={
                     isReadOnly
