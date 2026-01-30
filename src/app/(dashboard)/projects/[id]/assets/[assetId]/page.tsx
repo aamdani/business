@@ -10,6 +10,7 @@ import { useAsset } from "@/hooks/use-assets";
 import { useProject } from "@/hooks/use-projects";
 import { ASSET_TYPE_LABELS, ASSET_STATUS_CONFIG } from "@/components/projects/asset-card";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { SidebarAutoCollapse } from "@/components/sidebar-auto-collapse";
 
 interface AssetEditorPageProps {
   params: Promise<{ id: string; assetId: string }>;
@@ -55,6 +56,7 @@ export default function AssetEditorPage({ params }: AssetEditorPageProps) {
 
   return (
     <div className="space-y-6">
+      <SidebarAutoCollapse />
       {/* Header */}
       <div className="flex items-start gap-4">
         <Button asChild variant="ghost" size="icon">

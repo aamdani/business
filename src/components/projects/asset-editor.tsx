@@ -14,7 +14,10 @@ import {
   useRefreshLock,
 } from "@/hooks/use-assets";
 import { useCreateVersion } from "@/hooks/use-asset-versions";
-import { Save, Loader2, Check, AlertCircle } from "lucide-react";
+import { Save, Loader2, Check, AlertCircle, Eye, Code, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { AssetVersion } from "@/lib/types";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,6 +62,8 @@ function AssetEditorInner({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [showInactivityDialog, setShowInactivityDialog] = useState(false);
   const [currentLockStatus, setCurrentLockStatus] = useState(lockStatus);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [viewingVersion, setViewingVersion] = useState<AssetVersion | null>(null);
 
   // Keep lock status in sync
   const { data: refreshedLockStatus } = useCheckLock(assetId);
@@ -210,13 +215,109 @@ function AssetEditorInner({
         isReleasing={releaseLock.isPending}
       />
 
+      {/* Side-by-side comparison panel when viewing a version */}
+      {viewingVersion && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <CardTitle className="text-sm font-medium">
+                  Comparing: Current vs v{viewingVersion.version_number}
+                </CardTitle>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setViewingVersion(null)}
+              >
+                <X className="h-4 w-4 mr-1" />
+                Close Comparison
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* Current Version */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Current (v{asset.current_version})
+                  </span>
+                </div>
+                <div className="min-h-[300px] max-h-[400px] p-4 border border-border rounded-md bg-background overflow-auto">
+                  {content ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm italic">
+                      No content
+                    </p>
+                  )}
+                </div>
+              </div>
+              {/* Historical Version */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                    Version {viewingVersion.version_number}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({new Date(viewingVersion.created_at).toLocaleString()})
+                  </span>
+                </div>
+                <div className="min-h-[300px] max-h-[400px] p-4 border border-blue-500/30 rounded-md bg-blue-500/5 overflow-auto">
+                  {viewingVersion.content ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {viewingVersion.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm italic">
+                      No content
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-4">
         {/* Editor */}
         <div className="lg:col-span-3">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium">Content</CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-medium">Content</CardTitle>
+                  {/* Edit/Preview Toggle */}
+                  <div className="flex items-center border border-border rounded-md overflow-hidden">
+                    <Button
+                      size="sm"
+                      variant={!isPreviewMode ? "secondary" : "ghost"}
+                      onClick={() => setIsPreviewMode(false)}
+                      className="h-7 rounded-none px-2"
+                    >
+                      <Code className="h-3 w-3 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={isPreviewMode ? "secondary" : "ghost"}
+                      onClick={() => setIsPreviewMode(true)}
+                      className="h-7 rounded-none px-2"
+                    >
+                      <Eye className="h-3 w-3 mr-1" />
+                      Preview
+                    </Button>
+                  </div>
+                </div>
                 <div className="flex items-center gap-2">
                   {saveStatus === "saving" && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -248,20 +349,36 @@ function AssetEditorInner({
               </div>
             </CardHeader>
             <CardContent>
-              <Textarea
-                value={content}
-                onChange={(e) => handleContentChange(e.target.value)}
-                disabled={!canEdit}
-                placeholder={
-                  isReadOnly
-                    ? "This asset is being edited by another user..."
-                    : canEdit
-                    ? "Start writing your content..."
-                    : "Click 'Start Editing' to begin..."
-                }
-                className="min-h-[400px] font-mono text-sm resize-none"
-              />
-              {hasUnsavedChanges && canEdit && (
+              {isPreviewMode ? (
+                <div className="min-h-[400px] p-4 border border-border rounded-md bg-muted/30 overflow-auto">
+                  {content ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm italic">
+                      No content to preview
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <Textarea
+                  value={content}
+                  onChange={(e) => handleContentChange(e.target.value)}
+                  disabled={!canEdit}
+                  placeholder={
+                    isReadOnly
+                      ? "This asset is being edited by another user..."
+                      : canEdit
+                      ? "Start writing your content in markdown..."
+                      : "Click 'Start Editing' to begin..."
+                  }
+                  className="min-h-[400px] font-mono text-sm resize-none"
+                />
+              )}
+              {hasUnsavedChanges && canEdit && !isPreviewMode && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
                   You have unsaved changes
                 </p>
@@ -278,9 +395,12 @@ function AssetEditorInner({
                 assetId={assetId}
                 currentVersion={asset.current_version}
                 disabled={!canEdit}
+                viewingVersionId={viewingVersion?.id}
+                onView={(version) => setViewingVersion(version)}
                 onRestore={(version) => {
                   setContent(version.content);
                   setHasUnsavedChanges(true);
+                  setViewingVersion(null);
                 }}
               />
             </CardContent>

@@ -35,9 +35,14 @@ import {
   Youtube,
   Video,
   FileText,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { SidebarAutoCollapse } from "@/components/sidebar-auto-collapse";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,6 +104,8 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
   const [notes, setNotes] = useState<string | null>(null);
   const [newAssetType, setNewAssetType] = useState<AssetType | "">("");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
 
   // Initialize notes from project when loaded
   if (project && notes === null) {
@@ -111,6 +118,35 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
       id: project.id,
       updates: { status: newStatus },
     });
+  };
+
+  const handleStartEditTitle = () => {
+    if (!project) return;
+    setEditedTitle(project.title);
+    setIsEditingTitle(true);
+  };
+
+  const handleCancelEditTitle = () => {
+    setIsEditingTitle(false);
+    setEditedTitle("");
+  };
+
+  const handleSaveTitle = async () => {
+    if (!project || !editedTitle.trim()) return;
+    if (editedTitle.trim() === project.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+    try {
+      await updateProject.mutateAsync({
+        id: project.id,
+        updates: { title: editedTitle.trim() },
+      });
+      setIsEditingTitle(false);
+      toast.success("Title updated");
+    } catch {
+      toast.error("Failed to update title");
+    }
   };
 
   const handleNotesBlur = async () => {
@@ -195,6 +231,7 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
 
   return (
     <div className="space-y-6">
+      <SidebarAutoCollapse />
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
@@ -204,9 +241,49 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">
-              {project.title}
-            </h1>
+            {isEditingTitle ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveTitle();
+                    if (e.key === "Escape") handleCancelEditTitle();
+                  }}
+                  className="text-2xl font-bold h-auto py-1 px-2"
+                  autoFocus
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleSaveTitle}
+                  disabled={updateProject.isPending}
+                >
+                  <Check className="h-4 w-4 text-green-600" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleCancelEditTitle}
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group">
+                <h1 className="text-2xl font-bold text-foreground">
+                  {project.title}
+                </h1>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleStartEditTitle}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
+                >
+                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            )}
             <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
               <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                 <PopoverTrigger asChild>

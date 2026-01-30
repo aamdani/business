@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAssetVersions, useRestoreVersion } from "@/hooks/use-asset-versions";
 import type { AssetVersion } from "@/lib/types";
-import { History, RotateCcw, Loader2, Check } from "lucide-react";
+import { History, RotateCcw, Loader2, Check, Eye } from "lucide-react";
 
 interface VersionHistoryProps {
   assetId: string;
   currentVersion: number;
   onRestore?: (version: AssetVersion) => void;
+  onView?: (version: AssetVersion) => void;
+  viewingVersionId?: string | null;
   disabled?: boolean;
 }
 
@@ -17,6 +19,8 @@ export function VersionHistory({
   assetId,
   currentVersion,
   onRestore,
+  onView,
+  viewingVersionId,
   disabled = false,
 }: VersionHistoryProps) {
   const { data: versions = [], isLoading } = useAssetVersions(assetId);
@@ -90,12 +94,15 @@ export function VersionHistory({
         <div className="space-y-1 pr-4">
           {versions.map((version) => {
             const isCurrent = version.version_number === currentVersion;
+            const isViewing = viewingVersionId === version.id;
 
             return (
               <div
                 key={version.id}
                 className={`flex items-center justify-between p-2 rounded-md ${
-                  isCurrent
+                  isViewing
+                    ? "bg-blue-500/10 border border-blue-500/30"
+                    : isCurrent
                     ? "bg-primary/10 border border-primary/20"
                     : "hover:bg-muted"
                 }`}
@@ -111,6 +118,12 @@ export function VersionHistory({
                         Current
                       </span>
                     )}
+                    {isViewing && !isCurrent && (
+                      <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                        <Eye className="h-3 w-3" />
+                        Viewing
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {formatDate(version.created_at)}
@@ -118,22 +131,33 @@ export function VersionHistory({
                 </div>
 
                 {!isCurrent && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleRestore(version)}
-                    disabled={disabled || restoreVersion.isPending}
-                    className="h-7 px-2"
-                  >
-                    {restoreVersion.isPending ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <>
-                        <RotateCcw className="h-3 w-3 mr-1" />
-                        Restore
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant={isViewing ? "secondary" : "ghost"}
+                      onClick={() => onView?.(version)}
+                      className="h-7 px-2"
+                    >
+                      <Eye className="h-3 w-3 mr-1" />
+                      View
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleRestore(version)}
+                      disabled={disabled || restoreVersion.isPending}
+                      className="h-7 px-2"
+                    >
+                      {restoreVersion.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <>
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          Restore
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 )}
               </div>
             );
