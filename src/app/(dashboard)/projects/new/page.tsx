@@ -24,7 +24,6 @@ const PLATFORMS = [
   { id: "youtube", label: "YouTube" },
   { id: "tiktok", label: "TikTok" },
   { id: "substack", label: "Substack" },
-  { id: "linkedin", label: "LinkedIn" },
 ];
 
 export default function NewProjectPage() {
@@ -36,7 +35,6 @@ export default function NewProjectPage() {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [targetPlatforms, setTargetPlatforms] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
-  const [videoRuntime, setVideoRuntime] = useState("");
 
   const handlePlatformToggle = (platformId: string) => {
     setTargetPlatforms((prev) =>
@@ -64,7 +62,6 @@ export default function NewProjectPage() {
         status: "draft",
         target_platforms: targetPlatforms.length > 0 ? targetPlatforms : undefined,
         notes: notes.trim() || null,
-        video_runtime: videoRuntime.trim() || null,
       });
 
       toast.success("Project created successfully");
@@ -161,20 +158,6 @@ export default function NewProjectPage() {
                   </div>
                 ))}
               </div>
-            </div>
-
-            {/* Video Runtime */}
-            <div className="space-y-2">
-              <Label htmlFor="runtime">Video Runtime</Label>
-              <Input
-                id="runtime"
-                placeholder="e.g., 10:30"
-                value={videoRuntime}
-                onChange={(e) => setVideoRuntime(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Optional. Format: MM:SS or HH:MM:SS
-              </p>
             </div>
 
             {/* Notes */}

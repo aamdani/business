@@ -350,7 +350,7 @@ function AssetEditorInner({
             </CardHeader>
             <CardContent>
               {isPreviewMode ? (
-                <div className="min-h-[400px] p-4 border border-border rounded-md bg-muted/30 overflow-auto">
+                <div className="min-h-[600px] max-h-[75vh] p-4 border border-border rounded-md bg-muted/30 overflow-auto">
                   {content ? (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -373,9 +373,9 @@ function AssetEditorInner({
                       ? "This asset is being edited by another user..."
                       : canEdit
                       ? "Start writing your content in markdown..."
-                      : "Click 'Start Editing' to begin..."
+                      : "Click Edit to begin..."
                   }
-                  className="min-h-[400px] font-mono text-sm resize-none"
+                  className="min-h-[600px] font-mono text-sm resize-vertical"
                 />
               )}
               {hasUnsavedChanges && canEdit && !isPreviewMode && (

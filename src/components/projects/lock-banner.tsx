@@ -28,16 +28,10 @@ export function LockBanner({
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // Not locked - show acquire button
+  // Not locked - show edit button (left) and status (right)
   if (!isLocked) {
     return (
       <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
-        <div className="flex items-center gap-2">
-          <Unlock className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">
-            Click Edit to start editing this asset
-          </span>
-        </div>
         <Button
           size="sm"
           onClick={onAcquireLock}
@@ -46,23 +40,48 @@ export function LockBanner({
           {isAcquiring ? (
             <>
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              Acquiring...
+              Starting...
             </>
           ) : (
             <>
               <Lock className="h-4 w-4 mr-1" />
-              Start Editing
+              Edit
             </>
           )}
         </Button>
+        <div className="flex items-center gap-2">
+          <Unlock className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">
+            Click Edit to start editing this asset
+          </span>
+        </div>
       </div>
     );
   }
 
-  // Locked by current user
+  // Locked by current user - button (left) and status (right)
   if (isLockedByCurrentUser) {
     return (
       <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onReleaseLock}
+          disabled={isReleasing}
+          className="border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900"
+        >
+          {isReleasing ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              Finishing...
+            </>
+          ) : (
+            <>
+              <Unlock className="h-4 w-4 mr-1" />
+              Done Editing
+            </>
+          )}
+        </Button>
         <div className="flex items-center gap-2">
           <Lock className="h-4 w-4 text-green-600 dark:text-green-400" />
           <span className="text-sm text-green-700 dark:text-green-300">
@@ -74,25 +93,6 @@ export function LockBanner({
             )}
           </span>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onReleaseLock}
-          disabled={isReleasing}
-          className="border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900"
-        >
-          {isReleasing ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              Releasing...
-            </>
-          ) : (
-            <>
-              <Unlock className="h-4 w-4 mr-1" />
-              Done Editing
-            </>
-          )}
-        </Button>
       </div>
     );
   }
