@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableProjectCard } from "./draggable-project-card";
 import { ProjectCard, EmptyDayCard } from "./project-card";
@@ -144,9 +144,11 @@ function GalleryCarousel({ projects, weekDays }: GalleryCarouselProps) {
   const cardsPerPage = 3;
 
   // Build gallery items: projects + empty day placeholders
-  const galleryItems = useMemo(() => {
+  // Also track the index of today's first item
+  const { galleryItems, todayIndex } = useMemo(() => {
     const items: GalleryItem[] = [];
     const projectsByDate = new Map<string, ContentProjectWithSummary[]>();
+    let foundTodayIndex = -1;
 
     // Group projects by date
     projects.forEach((project) => {
@@ -163,20 +165,39 @@ function GalleryCarousel({ projects, weekDays }: GalleryCarouselProps) {
     for (const day of weekDays) {
       const dateKey = formatDateKey(day);
       const dayProjects = projectsByDate.get(dateKey) || [];
+      const dayIsToday = isToday(day);
 
       if (dayProjects.length === 0) {
         // Empty day - add placeholder
+        if (dayIsToday && foundTodayIndex === -1) {
+          foundTodayIndex = items.length;
+        }
         items.push({ type: "empty", date: dateKey });
       } else {
         // Add all projects for this day
+        if (dayIsToday && foundTodayIndex === -1) {
+          foundTodayIndex = items.length;
+        }
         for (const project of dayProjects) {
           items.push({ type: "project", project });
         }
       }
     }
 
-    return items;
+    return { galleryItems: items, todayIndex: foundTodayIndex };
   }, [projects, weekDays]);
+
+  // Center on today when the week changes and today is in this week
+  useEffect(() => {
+    if (todayIndex >= 0) {
+      // Center today's card (put it in the middle of 3 cards)
+      const centeredIndex = Math.max(0, Math.min(todayIndex - 1, galleryItems.length - cardsPerPage));
+      setCurrentIndex(centeredIndex);
+    } else {
+      // Today is not in this week, reset to start
+      setCurrentIndex(0);
+    }
+  }, [weekDays]); // Reset when week changes
 
   const totalPages = Math.ceil(galleryItems.length / cardsPerPage);
   const currentPage = Math.floor(currentIndex / cardsPerPage);

@@ -242,12 +242,13 @@ export function generateProjectId(date: Date = new Date()): string {
 }
 
 // Asset types that contain main content (for summary extraction)
+// Ordered by priority: main post drafts first, then outlines
 const CONTENT_ASSET_TYPES = [
   "post",
   "post_substack",
   "post_linkedin",
-  "transcript_youtube",
-  "transcript_tiktok",
+  "outline",
+  "guide",
 ];
 
 /**
@@ -288,15 +289,20 @@ export function useProjectsWithSummary(filters?: ProjectFilters) {
         .from("nate_project_assets")
         .select("project_id, asset_type, content")
         .in("project_id", projectIds)
-        .in("asset_type", CONTENT_ASSET_TYPES)
-        .order("created_at", { ascending: true });
+        .in("asset_type", CONTENT_ASSET_TYPES);
 
-      // Create a map of project_id to first content asset
-      const assetMap = new Map<string, string>();
+      // Create a map of project_id to best content asset (prioritized by type)
+      const assetMap = new Map<string, { content: string; priority: number }>();
       if (assets) {
         for (const asset of assets) {
-          if (!assetMap.has(asset.project_id) && asset.content) {
-            assetMap.set(asset.project_id, asset.content);
+          if (!asset.content) continue;
+
+          const priority = CONTENT_ASSET_TYPES.indexOf(asset.asset_type);
+          const existing = assetMap.get(asset.project_id);
+
+          // Use this asset if no existing one, or if it has higher priority (lower index)
+          if (!existing || priority < existing.priority) {
+            assetMap.set(asset.project_id, { content: asset.content, priority });
           }
         }
       }
@@ -304,7 +310,7 @@ export function useProjectsWithSummary(filters?: ProjectFilters) {
       // Merge projects with their content summary
       return projects.map((project) => ({
         ...project,
-        content_summary: assetMap.get(project.id) || null,
+        content_summary: assetMap.get(project.id)?.content || null,
       })) as ContentProjectWithSummary[];
     },
   });

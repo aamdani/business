@@ -71,8 +71,8 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, variant = "compact" }: ProjectCardProps) {
   const statusConfig = STATUS_CONFIG[project.status];
-  // Use content_summary (from assets) if available, otherwise fall back to notes
-  const summary = truncateWords(project.content_summary || project.notes, 75);
+  // Use content_summary from main post draft or outline (not notes)
+  const summary = truncateWords(project.content_summary, 75);
 
   if (variant === "compact") {
     // Compact card for month view
@@ -88,12 +88,12 @@ export function ProjectCard({ project, variant = "compact" }: ProjectCardProps) 
           "px-2.5 py-1.5"
         )}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-start gap-2 min-w-0">
           <span
-            className={cn("w-1.5 h-1.5 rounded-full shrink-0", statusConfig.dotClass)}
+            className={cn("w-1.5 h-1.5 rounded-full shrink-0 mt-1", statusConfig.dotClass)}
             aria-label={statusConfig.label}
           />
-          <p className="text-xs font-medium text-stone-800 dark:text-stone-200 truncate">
+          <p className="text-xs font-medium text-stone-800 dark:text-stone-200 leading-tight">
             {project.title}
           </p>
         </div>

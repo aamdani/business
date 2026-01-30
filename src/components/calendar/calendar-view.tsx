@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { DndContext, DragEndEvent, DragOverlay } from "@dnd-kit/core";
 import { CalendarGrid } from "./calendar-grid";
 import { ProjectCard, STATUS_CONFIG } from "./project-card";
@@ -23,6 +24,18 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+
+// Parse date from URL param (YYYY-MM-DD format)
+function parseDateParam(param: string | null): Date | null {
+  if (!param) return null;
+  const date = new Date(param);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+// Format date for URL param
+function formatDateParam(date: Date): string {
+  return date.toISOString().split("T")[0];
+}
 
 type ViewMode = "month" | "week";
 
@@ -53,11 +66,34 @@ function formatWeekRange(date: Date): string {
 }
 
 export function CalendarView() {
-  const [viewMode, setViewMode] = useState<ViewMode>("week");
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
-  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Initialize state from URL params
+  const initialDate = parseDateParam(searchParams.get("date")) || new Date();
+  const initialView = (searchParams.get("view") as ViewMode) || "week";
+  const initialStatus = (searchParams.get("status") as ProjectStatus | "all") || "all";
+
+  const [viewMode, setViewMode] = useState<ViewMode>(initialView);
+  const [currentDate, setCurrentDate] = useState(initialDate);
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">(initialStatus);
   const [activeProject, setActiveProject] = useState<ContentProjectWithSummary | null>(null);
+
+  // Sync state to URL params (for back button support)
+  const updateUrlParams = useCallback((date: Date, view: ViewMode, status: ProjectStatus | "all") => {
+    const params = new URLSearchParams();
+    params.set("date", formatDateParam(date));
+    params.set("view", view);
+    if (status !== "all") {
+      params.set("status", status);
+    }
+    router.replace(`/calendar?${params.toString()}`, { scroll: false });
+  }, [router]);
+
+  // Update URL when state changes
+  useEffect(() => {
+    updateUrlParams(currentDate, viewMode, statusFilter);
+  }, [currentDate, viewMode, statusFilter, updateUrlParams]);
 
   const updateProject = useUpdateProject();
 
@@ -96,11 +132,8 @@ export function CalendarView() {
     if (statusFilter !== "all") {
       f.status = statusFilter;
     }
-    if (platformFilter !== "all") {
-      f.platform = platformFilter;
-    }
     return f;
-  }, [dateRange, statusFilter, platformFilter]);
+  }, [dateRange, statusFilter]);
 
   const { data: projects = [], isLoading } = useProjectsWithSummary(filters);
 
@@ -108,6 +141,9 @@ export function CalendarView() {
   const goToPrevious = () => {
     const newDate = new Date(currentDate);
     if (viewMode === "month") {
+      // Set to first of month to prevent overflow issues
+      // (e.g., Jan 31 - 1 month would become Mar 3 due to Feb having fewer days)
+      newDate.setDate(1);
       newDate.setMonth(newDate.getMonth() - 1);
     } else {
       newDate.setDate(newDate.getDate() - 7);
@@ -118,6 +154,8 @@ export function CalendarView() {
   const goToNext = () => {
     const newDate = new Date(currentDate);
     if (viewMode === "month") {
+      // Set to first of month to prevent overflow issues
+      newDate.setDate(1);
       newDate.setMonth(newDate.getMonth() + 1);
     } else {
       newDate.setDate(newDate.getDate() + 7);
@@ -203,7 +241,7 @@ export function CalendarView() {
               onClick={() => setViewMode("week")}
               className="rounded-none"
             >
-              Week
+              Card
             </Button>
           </div>
 
@@ -222,23 +260,6 @@ export function CalendarView() {
                   {config.label}
                 </SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-
-          {/* Platform Filter */}
-          <Select
-            value={platformFilter}
-            onValueChange={setPlatformFilter}
-          >
-            <SelectTrigger className="w-[130px]">
-              <SelectValue placeholder="Platform" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Platforms</SelectItem>
-              <SelectItem value="youtube">YouTube</SelectItem>
-              <SelectItem value="tiktok">TikTok</SelectItem>
-              <SelectItem value="substack">Substack</SelectItem>
-              <SelectItem value="linkedin">LinkedIn</SelectItem>
             </SelectContent>
           </Select>
 
