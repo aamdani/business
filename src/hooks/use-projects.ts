@@ -6,6 +6,7 @@ import type {
   ContentProject,
   ContentProjectInsert,
   ContentProjectUpdate,
+  ContentProjectWithSummary,
   ProjectStatus,
 } from "@/lib/types";
 
@@ -238,4 +239,73 @@ export function generateProjectId(date: Date = new Date()): string {
   const day = String(date.getDate()).padStart(2, "0");
   const random = Math.random().toString(36).substring(2, 5);
   return `${year}${month}${day}_${random}`;
+}
+
+// Asset types that contain main content (for summary extraction)
+const CONTENT_ASSET_TYPES = [
+  "post",
+  "post_substack",
+  "post_linkedin",
+  "transcript_youtube",
+  "transcript_tiktok",
+];
+
+/**
+ * Fetch projects with content summary from related assets (for calendar gallery view)
+ */
+export function useProjectsWithSummary(filters?: ProjectFilters) {
+  return useQuery({
+    queryKey: [...projectKeys.list(filters ?? {}), "withSummary"],
+    queryFn: async (): Promise<ContentProjectWithSummary[]> => {
+      const supabase = createClient();
+
+      // First fetch projects
+      let query = supabase
+        .from("nate_content_projects")
+        .select("*")
+        .order("scheduled_date", { ascending: true, nullsFirst: false });
+
+      if (filters?.status) {
+        query = query.eq("status", filters.status);
+      }
+      if (filters?.platform) {
+        query = query.contains("target_platforms", [filters.platform]);
+      }
+      if (filters?.startDate) {
+        query = query.gte("scheduled_date", filters.startDate);
+      }
+      if (filters?.endDate) {
+        query = query.lte("scheduled_date", filters.endDate);
+      }
+
+      const { data: projects, error } = await query;
+      if (error) throw error;
+      if (!projects || projects.length === 0) return [];
+
+      // Fetch assets for all projects in one query
+      const projectIds = projects.map((p) => p.id);
+      const { data: assets } = await supabase
+        .from("nate_project_assets")
+        .select("project_id, asset_type, content")
+        .in("project_id", projectIds)
+        .in("asset_type", CONTENT_ASSET_TYPES)
+        .order("created_at", { ascending: true });
+
+      // Create a map of project_id to first content asset
+      const assetMap = new Map<string, string>();
+      if (assets) {
+        for (const asset of assets) {
+          if (!assetMap.has(asset.project_id) && asset.content) {
+            assetMap.set(asset.project_id, asset.content);
+          }
+        }
+      }
+
+      // Merge projects with their content summary
+      return projects.map((project) => ({
+        ...project,
+        content_summary: assetMap.get(project.id) || null,
+      })) as ContentProjectWithSummary[];
+    },
+  });
 }

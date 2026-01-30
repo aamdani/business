@@ -678,6 +678,11 @@ export interface ContentProject {
   updated_at: string;
 }
 
+// Content Project with summary from related assets (for calendar view)
+export interface ContentProjectWithSummary extends ContentProject {
+  content_summary?: string | null;
+}
+
 export interface ContentProjectInsert {
   project_id: string;
   title: string;

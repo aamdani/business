@@ -3,12 +3,12 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { ProjectCard } from "./project-card";
-import type { ContentProject } from "@/lib/types";
+import type { ContentProject, ContentProjectWithSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { GripVertical } from "lucide-react";
 
 interface DraggableProjectCardProps {
-  project: ContentProject;
+  project: ContentProject | ContentProjectWithSummary;
   variant?: "compact" | "full";
 }
 

@@ -12,8 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useProjects, useUpdateProject, type ProjectFilters } from "@/hooks/use-projects";
-import type { ContentProject, ProjectStatus } from "@/lib/types";
+import { useProjectsWithSummary, useUpdateProject, type ProjectFilters } from "@/hooks/use-projects";
+import type { ContentProject, ContentProjectWithSummary, ProjectStatus } from "@/lib/types";
 import {
   ChevronLeft,
   ChevronRight,
@@ -57,7 +57,7 @@ export function CalendarView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const [activeProject, setActiveProject] = useState<ContentProject | null>(null);
+  const [activeProject, setActiveProject] = useState<ContentProjectWithSummary | null>(null);
 
   const updateProject = useUpdateProject();
 
@@ -102,7 +102,7 @@ export function CalendarView() {
     return f;
   }, [dateRange, statusFilter, platformFilter]);
 
-  const { data: projects = [], isLoading } = useProjects(filters);
+  const { data: projects = [], isLoading } = useProjectsWithSummary(filters);
 
   // Navigation handlers
   const goToPrevious = () => {
@@ -130,7 +130,7 @@ export function CalendarView() {
   };
 
   // Drag and drop handlers
-  const handleDragStart = (event: { active: { data: { current?: { project?: ContentProject } } } }) => {
+  const handleDragStart = (event: { active: { data: { current?: { project?: ContentProjectWithSummary } } } }) => {
     const project = event.active.data.current?.project;
     if (project) {
       setActiveProject(project);
@@ -143,7 +143,7 @@ export function CalendarView() {
 
     if (!over) return;
 
-    const projectData = active.data.current?.project as ContentProject | undefined;
+    const projectData = active.data.current?.project as ContentProjectWithSummary | undefined;
     const targetDate = over.id as string;
 
     if (!projectData) return;

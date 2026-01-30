@@ -3,14 +3,14 @@
 import { useMemo, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableProjectCard } from "./draggable-project-card";
-import { ProjectCard } from "./project-card";
-import type { ContentProject } from "@/lib/types";
+import { ProjectCard, EmptyDayCard } from "./project-card";
+import type { ContentProject, ContentProjectWithSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface CalendarGridProps {
-  projects: ContentProject[];
+  projects: ContentProjectWithSummary[];
   viewMode: "month" | "week";
   currentDate: Date;
 }
@@ -35,6 +35,21 @@ function getMonthDays(date: Date): Date[] {
   while (current <= endDate) {
     days.push(new Date(current));
     current.setDate(current.getDate() + 1);
+  }
+
+  return days;
+}
+
+// Get days in current week
+function getWeekDays(date: Date): Date[] {
+  const startOfWeek = new Date(date);
+  startOfWeek.setDate(date.getDate() - date.getDay());
+
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(startOfWeek);
+    day.setDate(startOfWeek.getDate() + i);
+    days.push(day);
   }
 
   return days;
@@ -113,48 +128,71 @@ function DroppableDayMonth({ date, projects, inCurrentMonth }: DroppableDayMonth
   );
 }
 
+// Card item type for gallery - either a project or an empty day placeholder
+type GalleryItem =
+  | { type: "project"; project: ContentProjectWithSummary }
+  | { type: "empty"; date: string };
+
 // Gallery carousel for week view
 interface GalleryCarouselProps {
-  projects: ContentProject[];
+  projects: ContentProjectWithSummary[];
+  weekDays: Date[];
 }
 
-function GalleryCarousel({ projects }: GalleryCarouselProps) {
+function GalleryCarousel({ projects, weekDays }: GalleryCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const cardsPerPage = 3;
 
-  // Sort projects by scheduled_date
-  const sortedProjects = useMemo(() => {
-    return [...projects].sort((a, b) => {
-      if (!a.scheduled_date && !b.scheduled_date) return 0;
-      if (!a.scheduled_date) return 1;
-      if (!b.scheduled_date) return -1;
-      return new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime();
-    });
-  }, [projects]);
+  // Build gallery items: projects + empty day placeholders
+  const galleryItems = useMemo(() => {
+    const items: GalleryItem[] = [];
+    const projectsByDate = new Map<string, ContentProjectWithSummary[]>();
 
-  const totalPages = Math.ceil(sortedProjects.length / cardsPerPage);
+    // Group projects by date
+    projects.forEach((project) => {
+      if (project.scheduled_date) {
+        const dateKey = project.scheduled_date.split("T")[0];
+        if (!projectsByDate.has(dateKey)) {
+          projectsByDate.set(dateKey, []);
+        }
+        projectsByDate.get(dateKey)!.push(project);
+      }
+    });
+
+    // Build items array in chronological order
+    for (const day of weekDays) {
+      const dateKey = formatDateKey(day);
+      const dayProjects = projectsByDate.get(dateKey) || [];
+
+      if (dayProjects.length === 0) {
+        // Empty day - add placeholder
+        items.push({ type: "empty", date: dateKey });
+      } else {
+        // Add all projects for this day
+        for (const project of dayProjects) {
+          items.push({ type: "project", project });
+        }
+      }
+    }
+
+    return items;
+  }, [projects, weekDays]);
+
+  const totalPages = Math.ceil(galleryItems.length / cardsPerPage);
   const currentPage = Math.floor(currentIndex / cardsPerPage);
 
   const canGoBack = currentIndex > 0;
-  const canGoForward = currentIndex + cardsPerPage < sortedProjects.length;
+  const canGoForward = currentIndex + cardsPerPage < galleryItems.length;
 
   const goBack = () => {
     setCurrentIndex(Math.max(0, currentIndex - cardsPerPage));
   };
 
   const goForward = () => {
-    setCurrentIndex(Math.min(sortedProjects.length - cardsPerPage, currentIndex + cardsPerPage));
+    setCurrentIndex(Math.min(galleryItems.length - cardsPerPage, currentIndex + cardsPerPage));
   };
 
-  const visibleProjects = sortedProjects.slice(currentIndex, currentIndex + cardsPerPage);
-
-  if (sortedProjects.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 text-stone-400 dark:text-stone-600">
-        <p>No content scheduled for this period</p>
-      </div>
-    );
-  }
+  const visibleItems = galleryItems.slice(currentIndex, currentIndex + cardsPerPage);
 
   return (
     <div className="relative">
@@ -191,18 +229,22 @@ function GalleryCarousel({ projects }: GalleryCarouselProps) {
         <ChevronRight className="h-5 w-5" />
       </Button>
 
-      {/* Cards grid */}
+      {/* Cards grid - portrait aspect ratio (2:3, like paper) */}
       <div className="px-8">
         <div className="grid grid-cols-3 gap-5">
-          {visibleProjects.map((project) => (
-            <div key={project.id} className="h-64">
-              <ProjectCard project={project} variant="full" />
+          {visibleItems.map((item, index) => (
+            <div key={item.type === "project" ? item.project.id : `empty-${item.date}`} className="aspect-2/3">
+              {item.type === "project" ? (
+                <ProjectCard project={item.project} variant="full" />
+              ) : (
+                <EmptyDayCard date={item.date} />
+              )}
             </div>
           ))}
           {/* Fill empty slots to maintain grid */}
-          {visibleProjects.length < cardsPerPage &&
-            Array.from({ length: cardsPerPage - visibleProjects.length }).map((_, i) => (
-              <div key={`empty-${i}`} className="h-64" />
+          {visibleItems.length < cardsPerPage &&
+            Array.from({ length: cardsPerPage - visibleItems.length }).map((_, i) => (
+              <div key={`filler-${i}`} className="aspect-2/3" />
             ))}
         </div>
       </div>
@@ -230,12 +272,11 @@ function GalleryCarousel({ projects }: GalleryCarouselProps) {
 }
 
 export function CalendarGrid({ projects, viewMode, currentDate }: CalendarGridProps) {
-  const days = useMemo(() => {
-    return getMonthDays(currentDate);
-  }, [currentDate]);
+  const monthDays = useMemo(() => getMonthDays(currentDate), [currentDate]);
+  const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
 
   const projectsByDate = useMemo(() => {
-    const grouped: Record<string, ContentProject[]> = {};
+    const grouped: Record<string, ContentProjectWithSummary[]> = {};
 
     projects.forEach((project) => {
       if (project.scheduled_date) {
@@ -254,7 +295,7 @@ export function CalendarGrid({ projects, viewMode, currentDate }: CalendarGridPr
   if (viewMode === "week") {
     return (
       <div className="py-4">
-        <GalleryCarousel projects={projects} />
+        <GalleryCarousel projects={projects} weekDays={weekDays} />
       </div>
     );
   }
@@ -274,7 +315,7 @@ export function CalendarGrid({ projects, viewMode, currentDate }: CalendarGridPr
       </div>
 
       <div className="grid grid-cols-7">
-        {days.map((day, i) => {
+        {monthDays.map((day, i) => {
           const dateKey = formatDateKey(day);
           const dayProjects = projectsByDate[dateKey] || [];
           const inCurrentMonth = isCurrentMonth(day, currentDate);
